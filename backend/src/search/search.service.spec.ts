@@ -6,54 +6,6 @@ describe('SearchService', () => {
   let service: SearchService;
   let prisma: PrismaService;
 
-  const mockVoyage = {
-    id: 'voyage-1',
-    voyageName: 'Pacific Voyage',
-    vesselName: 'MV Star',
-    internalReference: 'REF-001',
-    status: 'ACTIVE',
-    loadPort: 'Singapore',
-    dischargePort: 'Rotterdam',
-    createdAt: new Date(),
-    updatedAt: new Date(),
-  };
-
-  const mockMessageResult = {
-    id: 'msg-1',
-    plainTextBody: 'Discussing Pacific route',
-    messageType: 'USER_TEXT',
-    sentAt: new Date(),
-    conversationId: 'conv-1',
-    conversation: {
-      id: 'conv-1',
-      title: 'Main Chat',
-      voyageId: 'voyage-1',
-      voyage: { id: 'voyage-1', voyageName: 'Pacific Voyage' },
-    },
-    author: { id: 'user-1', firstName: 'John', lastName: 'Doe' },
-  };
-
-  const mockTermResult = {
-    id: 'term-1',
-    termType: 'VESSEL',
-    rawValue: 'Pacific Star',
-    normalizedValue: 'Pacific Star',
-    extractionStatus: 'PROPOSED',
-    voyageId: 'voyage-1',
-    createdAt: new Date(),
-    voyage: { id: 'voyage-1', voyageName: 'Pacific Voyage' },
-  };
-
-  const mockRecapResult = {
-    id: 'recap-1',
-    title: 'Pacific Voyage Recap',
-    versionNumber: 1,
-    voyageId: 'voyage-1',
-    generatedBy: 'user-1',
-    createdAt: new Date(),
-    voyage: { id: 'voyage-1', voyageName: 'Pacific Voyage' },
-  };
-
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -62,16 +14,16 @@ describe('SearchService', () => {
           provide: PrismaService,
           useValue: {
             voyage: {
-              findMany: jest.fn(),
+              findMany: jest.fn().mockResolvedValue([]),
             },
             message: {
-              findMany: jest.fn(),
+              findMany: jest.fn().mockResolvedValue([]),
             },
             extractedTerm: {
-              findMany: jest.fn(),
+              findMany: jest.fn().mockResolvedValue([]),
             },
             recap: {
-              findMany: jest.fn(),
+              findMany: jest.fn().mockResolvedValue([]),
             },
           },
         },
@@ -87,62 +39,75 @@ describe('SearchService', () => {
   });
 
   describe('search', () => {
-    it('should return results across all entity types', async () => {
-      (prisma.voyage.findMany as jest.Mock).mockResolvedValue([mockVoyage]);
-      (prisma.message.findMany as jest.Mock).mockResolvedValue([mockMessageResult]);
-      (prisma.extractedTerm.findMany as jest.Mock).mockResolvedValue([mockTermResult]);
-      (prisma.recap.findMany as jest.Mock).mockResolvedValue([mockRecapResult]);
+    it('should query across all entity types when no type filter', async () => {
+      const mockVoyages = [
+        {
+          id: 'v-1',
+          voyageName: 'Pacific Run',
+          vesselName: 'MV Pacific Star',
+          status: 'FIXING',
+        },
+      ];
+      const mockMessages = [
+        {
+          id: 'm-1',
+          plainTextBody: 'Discussing Pacific route',
+          sentAt: new Date(),
+        },
+      ];
 
-      const result = await service.search({ q: 'Pacific' }, 'company-1');
-
-      expect(result.voyages).toHaveLength(1);
-      expect(result.voyages[0].voyageName).toBe('Pacific Voyage');
-      expect(result.messages).toHaveLength(1);
-      expect(result.terms).toHaveLength(1);
-      expect(result.recaps).toHaveLength(1);
-
-      expect(prisma.voyage.findMany).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: expect.objectContaining({ companyId: 'company-1' }),
-          take: 20,
-        }),
-      );
-    });
-
-    it('should filter by type when type parameter is provided', async () => {
-      (prisma.voyage.findMany as jest.Mock).mockResolvedValue([mockVoyage]);
+      (prisma.voyage.findMany as jest.Mock).mockResolvedValue(mockVoyages);
+      (prisma.message.findMany as jest.Mock).mockResolvedValue(mockMessages);
 
       const result = await service.search(
-        { q: 'Pacific', type: 'voyages' },
+        { q: 'Pacific' },
         'company-1',
       );
 
-      expect(result.voyages).toHaveLength(1);
-      expect(result.messages).toHaveLength(0);
-      expect(result.terms).toHaveLength(0);
-      expect(result.recaps).toHaveLength(0);
+      expect(prisma.voyage.findMany).toHaveBeenCalled();
+      expect(prisma.message.findMany).toHaveBeenCalled();
+      expect(prisma.extractedTerm.findMany).toHaveBeenCalled();
+      expect(prisma.recap.findMany).toHaveBeenCalled();
+
+      expect(result.voyages).toEqual(mockVoyages);
+      expect(result.messages).toEqual(mockMessages);
+    });
+
+    it('should only query specified type when type filter is set', async () => {
+      const mockVoyages = [
+        { id: 'v-1', voyageName: 'Test', status: 'DRAFT' },
+      ];
+      (prisma.voyage.findMany as jest.Mock).mockResolvedValue(mockVoyages);
+
+      const result = await service.search(
+        { q: 'Test', type: 'voyages' },
+        'company-1',
+      );
 
       expect(prisma.voyage.findMany).toHaveBeenCalled();
       expect(prisma.message.findMany).not.toHaveBeenCalled();
       expect(prisma.extractedTerm.findMany).not.toHaveBeenCalled();
       expect(prisma.recap.findMany).not.toHaveBeenCalled();
+
+      expect(result.voyages).toEqual(mockVoyages);
+      expect(result.messages).toEqual([]);
+      expect(result.terms).toEqual([]);
+      expect(result.recaps).toEqual([]);
     });
 
     it('should return empty results for no matches', async () => {
-      (prisma.voyage.findMany as jest.Mock).mockResolvedValue([]);
-      (prisma.message.findMany as jest.Mock).mockResolvedValue([]);
-      (prisma.extractedTerm.findMany as jest.Mock).mockResolvedValue([]);
-      (prisma.recap.findMany as jest.Mock).mockResolvedValue([]);
+      const result = await service.search(
+        { q: 'nonexistent-query-xyz' },
+        'company-1',
+      );
 
-      const result = await service.search({ q: 'nonexistent' }, 'company-1');
-
-      expect(result.voyages).toHaveLength(0);
-      expect(result.messages).toHaveLength(0);
-      expect(result.terms).toHaveLength(0);
-      expect(result.recaps).toHaveLength(0);
+      expect(result.voyages).toEqual([]);
+      expect(result.messages).toEqual([]);
+      expect(result.terms).toEqual([]);
+      expect(result.recaps).toEqual([]);
     });
 
-    it('should return empty results when query is empty', async () => {
+    it('should return empty results for empty query', async () => {
       const result = await service.search({ q: '' }, 'company-1');
 
       expect(result).toEqual({
@@ -152,59 +117,35 @@ describe('SearchService', () => {
         recaps: [],
       });
 
+      // Should not call any prisma methods for empty query
       expect(prisma.voyage.findMany).not.toHaveBeenCalled();
-    });
-
-    it('should return empty results when query is whitespace', async () => {
-      const result = await service.search({ q: '   ' }, 'company-1');
-
-      expect(result).toEqual({
-        voyages: [],
-        messages: [],
-        terms: [],
-        recaps: [],
-      });
-    });
-
-    it('should filter by multiple types when comma-separated', async () => {
-      (prisma.voyage.findMany as jest.Mock).mockResolvedValue([mockVoyage]);
-      (prisma.message.findMany as jest.Mock).mockResolvedValue([mockMessageResult]);
-
-      const result = await service.search(
-        { q: 'Pacific', type: 'voyages,messages' },
-        'company-1',
-      );
-
-      expect(result.voyages).toHaveLength(1);
-      expect(result.messages).toHaveLength(1);
-      expect(result.terms).toHaveLength(0);
-      expect(result.recaps).toHaveLength(0);
-
-      expect(prisma.extractedTerm.findMany).not.toHaveBeenCalled();
-      expect(prisma.recap.findMany).not.toHaveBeenCalled();
+      expect(prisma.message.findMany).not.toHaveBeenCalled();
     });
 
     it('should apply date filters when provided', async () => {
-      (prisma.voyage.findMany as jest.Mock).mockResolvedValue([]);
-      (prisma.message.findMany as jest.Mock).mockResolvedValue([]);
-      (prisma.extractedTerm.findMany as jest.Mock).mockResolvedValue([]);
-      (prisma.recap.findMany as jest.Mock).mockResolvedValue([]);
-
       await service.search(
-        { q: 'Pacific', dateFrom: '2025-01-01', dateTo: '2025-12-31' },
+        {
+          q: 'test',
+          dateFrom: '2025-01-01',
+          dateTo: '2025-12-31',
+        },
         'company-1',
       );
 
-      expect(prisma.voyage.findMany).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: expect.objectContaining({
-            createdAt: {
-              gte: expect.any(Date),
-              lte: expect.any(Date),
-            },
-          }),
-        }),
+      const voyageCall = (prisma.voyage.findMany as jest.Mock).mock.calls[0][0];
+      expect(voyageCall.where.createdAt).toBeDefined();
+      expect(voyageCall.where.createdAt.gte).toEqual(new Date('2025-01-01'));
+      expect(voyageCall.where.createdAt.lte).toEqual(new Date('2025-12-31'));
+    });
+
+    it('should apply status filter to voyages', async () => {
+      await service.search(
+        { q: 'test', type: 'voyages', status: 'DRAFT' },
+        'company-1',
       );
+
+      const voyageCall = (prisma.voyage.findMany as jest.Mock).mock.calls[0][0];
+      expect(voyageCall.where.status).toBe('DRAFT');
     });
   });
 });

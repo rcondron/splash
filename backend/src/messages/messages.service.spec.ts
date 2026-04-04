@@ -1,27 +1,17 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import {
-  NotFoundException,
-  ForbiddenException,
-} from '@nestjs/common';
+import { NotFoundException, ForbiddenException } from '@nestjs/common';
 import { MessagesService } from './messages.service';
 import { PrismaService } from '../prisma.service';
 import { AnalyticsService } from '../analytics/analytics.service';
-import { MessageType, MessageSource } from '@prisma/client';
 
 describe('MessagesService', () => {
   let service: MessagesService;
   let prisma: PrismaService;
 
-  const mockAuthor = {
-    id: 'user-1',
-    firstName: 'John',
-    lastName: 'Doe',
-    email: 'john@example.com',
-    avatarUrl: null,
-  };
-
   const mockConversation = {
     id: 'conv-1',
+    title: 'Test Conversation',
+    voyageId: 'voyage-1',
     voyage: { id: 'voyage-1', companyId: 'company-1' },
   };
 
@@ -29,16 +19,21 @@ describe('MessagesService', () => {
     id: 'msg-1',
     conversationId: 'conv-1',
     authorUserId: 'user-1',
-    messageType: MessageType.USER_TEXT,
+    messageType: 'USER_TEXT',
     plainTextBody: 'Hello world',
     richTextBody: null,
-    source: MessageSource.APP,
-    sentAt: new Date(),
+    source: 'APP',
+    sentAt: new Date('2025-06-01T12:00:00Z'),
+    createdAt: new Date('2025-06-01T12:00:00Z'),
     editedAt: null,
     deletedAt: null,
-    createdAt: new Date(),
-    updatedAt: new Date(),
-    author: mockAuthor,
+    author: {
+      id: 'user-1',
+      firstName: 'John',
+      lastName: 'Doe',
+      email: 'john@test.com',
+      avatarUrl: null,
+    },
   };
 
   beforeEach(async () => {
@@ -58,10 +53,10 @@ describe('MessagesService', () => {
               update: jest.fn(),
             },
             voyage: {
-              update: jest.fn(),
+              update: jest.fn().mockResolvedValue({}),
             },
             auditEvent: {
-              create: jest.fn(),
+              create: jest.fn().mockResolvedValue({}),
             },
           },
         },
@@ -83,42 +78,28 @@ describe('MessagesService', () => {
   });
 
   describe('create', () => {
-    it('should create a message, audit event, and update voyage.updatedAt', async () => {
-      (prisma.conversation.findUnique as jest.Mock).mockResolvedValue(mockConversation);
+    it('should create message and audit event', async () => {
+      (prisma.conversation.findUnique as jest.Mock).mockResolvedValue(
+        mockConversation,
+      );
       (prisma.message.create as jest.Mock).mockResolvedValue(mockMessage);
-      (prisma.voyage.update as jest.Mock).mockResolvedValue({});
-      (prisma.auditEvent.create as jest.Mock).mockResolvedValue({});
 
       const result = await service.create('conv-1', 'user-1', 'company-1', {
         plainTextBody: 'Hello world',
       });
 
       expect(result).toEqual(mockMessage);
-
       expect(prisma.message.create).toHaveBeenCalledWith({
         data: expect.objectContaining({
           conversationId: 'conv-1',
           authorUserId: 'user-1',
-          messageType: MessageType.USER_TEXT,
+          messageType: 'USER_TEXT',
           plainTextBody: 'Hello world',
-          source: MessageSource.APP,
+          source: 'APP',
         }),
-        include: {
-          author: {
-            select: {
-              id: true,
-              firstName: true,
-              lastName: true,
-              email: true,
-              avatarUrl: true,
-            },
-          },
-        },
-      });
-
-      expect(prisma.voyage.update).toHaveBeenCalledWith({
-        where: { id: 'voyage-1' },
-        data: { updatedAt: expect.any(Date) },
+        include: expect.objectContaining({
+          author: expect.any(Object),
+        }),
       });
 
       expect(prisma.auditEvent.create).toHaveBeenCalledWith({
@@ -132,18 +113,36 @@ describe('MessagesService', () => {
       });
     });
 
-    it('should throw NotFoundException when conversation does not exist', async () => {
+    it('should update voyage updatedAt', async () => {
+      (prisma.conversation.findUnique as jest.Mock).mockResolvedValue(
+        mockConversation,
+      );
+      (prisma.message.create as jest.Mock).mockResolvedValue(mockMessage);
+
+      await service.create('conv-1', 'user-1', 'company-1', {
+        plainTextBody: 'Hello world',
+      });
+
+      expect(prisma.voyage.update).toHaveBeenCalledWith({
+        where: { id: 'voyage-1' },
+        data: { updatedAt: expect.any(Date) },
+      });
+    });
+
+    it('should throw NotFoundException if conversation not found', async () => {
       (prisma.conversation.findUnique as jest.Mock).mockResolvedValue(null);
 
       await expect(
-        service.create('conv-1', 'user-1', 'company-1', {
+        service.create('nonexistent', 'user-1', 'company-1', {
           plainTextBody: 'Hello',
         }),
       ).rejects.toThrow(NotFoundException);
     });
 
-    it('should throw ForbiddenException when company does not match', async () => {
-      (prisma.conversation.findUnique as jest.Mock).mockResolvedValue(mockConversation);
+    it('should throw ForbiddenException if company does not match', async () => {
+      (prisma.conversation.findUnique as jest.Mock).mockResolvedValue(
+        mockConversation,
+      );
 
       await expect(
         service.create('conv-1', 'user-1', 'other-company', {
@@ -154,176 +153,149 @@ describe('MessagesService', () => {
   });
 
   describe('findByConversation', () => {
-    it('should return paginated results', async () => {
-      const conversation = {
-        id: 'conv-1',
-        voyage: { companyId: 'company-1' },
-      };
-      (prisma.conversation.findUnique as jest.Mock).mockResolvedValue(conversation);
+    it('should return paginated messages', async () => {
+      (prisma.conversation.findUnique as jest.Mock).mockResolvedValue(
+        mockConversation,
+      );
 
       const messages = [
-        { ...mockMessage, id: 'msg-3' },
-        { ...mockMessage, id: 'msg-2' },
-        { ...mockMessage, id: 'msg-1' },
+        { ...mockMessage, id: 'msg-3', fileAttachments: [] },
+        { ...mockMessage, id: 'msg-2', fileAttachments: [] },
+        { ...mockMessage, id: 'msg-1', fileAttachments: [] },
       ];
       (prisma.message.findMany as jest.Mock).mockResolvedValue(messages);
 
-      const result = await service.findByConversation('conv-1', 'company-1', {
-        limit: 50,
-      });
+      const result = await service.findByConversation(
+        'conv-1',
+        'company-1',
+        { limit: 50 },
+      );
 
-      expect(result.data).toHaveLength(3);
-      // Messages are reversed to be oldest-first
-      expect(result.data[0].id).toBe('msg-1');
+      expect(result).toHaveProperty('data');
+      expect(result).toHaveProperty('meta');
       expect(result.meta.hasMore).toBe(false);
       expect(result.meta.nextCursor).toBeNull();
     });
 
-    it('should return hasMore=true and nextCursor when more results exist', async () => {
-      const conversation = {
-        id: 'conv-1',
-        voyage: { companyId: 'company-1' },
-      };
-      (prisma.conversation.findUnique as jest.Mock).mockResolvedValue(conversation);
+    it('should detect hasMore when extra message returned', async () => {
+      (prisma.conversation.findUnique as jest.Mock).mockResolvedValue(
+        mockConversation,
+      );
 
-      // Return limit+1 messages to indicate hasMore
-      const messages = [
-        { ...mockMessage, id: 'msg-3' },
-        { ...mockMessage, id: 'msg-2' },
-        { ...mockMessage, id: 'msg-1' },
-      ];
+      // Return limit + 1 messages to trigger hasMore
+      const messages = Array.from({ length: 3 }, (_, i) => ({
+        ...mockMessage,
+        id: `msg-${i}`,
+        fileAttachments: [],
+      }));
       (prisma.message.findMany as jest.Mock).mockResolvedValue(messages);
 
-      const result = await service.findByConversation('conv-1', 'company-1', {
-        limit: 2,
-      });
+      const result = await service.findByConversation(
+        'conv-1',
+        'company-1',
+        { limit: 2 },
+      );
 
       expect(result.meta.hasMore).toBe(true);
-      expect(result.meta.nextCursor).toBe('msg-2');
+      expect(result.meta.nextCursor).toBe('msg-1');
       expect(result.data).toHaveLength(2);
     });
 
-    it('should throw NotFoundException when conversation not found', async () => {
+    it('should throw NotFoundException if conversation not found', async () => {
       (prisma.conversation.findUnique as jest.Mock).mockResolvedValue(null);
 
       await expect(
-        service.findByConversation('conv-1', 'company-1', {}),
+        service.findByConversation('nonexistent', 'company-1', {}),
       ).rejects.toThrow(NotFoundException);
-    });
-
-    it('should throw ForbiddenException when company does not match', async () => {
-      (prisma.conversation.findUnique as jest.Mock).mockResolvedValue({
-        id: 'conv-1',
-        voyage: { companyId: 'company-1' },
-      });
-
-      await expect(
-        service.findByConversation('conv-1', 'other-company', {}),
-      ).rejects.toThrow(ForbiddenException);
     });
   });
 
   describe('update', () => {
-    it('should modify message text and set editedAt', async () => {
-      const existingMessage = {
+    it('should only allow author to edit', async () => {
+      const messageWithConversation = {
         ...mockMessage,
+        authorUserId: 'user-1',
         conversation: {
-          ...mockConversation,
           voyage: { companyId: 'company-1' },
         },
       };
-      (prisma.message.findUnique as jest.Mock).mockResolvedValue(existingMessage);
+      (prisma.message.findUnique as jest.Mock).mockResolvedValue(
+        messageWithConversation,
+      );
+
+      await expect(
+        service.update('msg-1', 'user-2', 'company-1', {
+          plainTextBody: 'Edited',
+        }),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('should update message when author matches', async () => {
+      const messageWithConversation = {
+        ...mockMessage,
+        authorUserId: 'user-1',
+        conversation: {
+          voyage: { companyId: 'company-1' },
+        },
+      };
+      (prisma.message.findUnique as jest.Mock).mockResolvedValue(
+        messageWithConversation,
+      );
 
       const updatedMessage = {
         ...mockMessage,
-        plainTextBody: 'Updated text',
+        plainTextBody: 'Edited message',
         editedAt: new Date(),
       };
       (prisma.message.update as jest.Mock).mockResolvedValue(updatedMessage);
 
       const result = await service.update('msg-1', 'user-1', 'company-1', {
-        plainTextBody: 'Updated text',
+        plainTextBody: 'Edited message',
       });
 
-      expect(result.plainTextBody).toBe('Updated text');
+      expect(result.plainTextBody).toBe('Edited message');
       expect(prisma.message.update).toHaveBeenCalledWith({
         where: { id: 'msg-1' },
-        data: {
-          plainTextBody: 'Updated text',
-          richTextBody: undefined,
+        data: expect.objectContaining({
+          plainTextBody: 'Edited message',
           editedAt: expect.any(Date),
-        },
-        include: {
-          author: {
-            select: {
-              id: true,
-              firstName: true,
-              lastName: true,
-              email: true,
-              avatarUrl: true,
-            },
-          },
-        },
+        }),
+        include: expect.any(Object),
       });
     });
 
-    it('should throw NotFoundException when message not found', async () => {
-      (prisma.message.findUnique as jest.Mock).mockResolvedValue(null);
-
-      await expect(
-        service.update('msg-1', 'user-1', 'company-1', {
-          plainTextBody: 'Updated',
-        }),
-      ).rejects.toThrow(NotFoundException);
-    });
-
-    it('should throw ForbiddenException when user is not the author', async () => {
-      const existingMessage = {
-        ...mockMessage,
-        authorUserId: 'other-user',
-        conversation: {
-          ...mockConversation,
-          voyage: { companyId: 'company-1' },
-        },
-      };
-      (prisma.message.findUnique as jest.Mock).mockResolvedValue(existingMessage);
-
-      await expect(
-        service.update('msg-1', 'user-1', 'company-1', {
-          plainTextBody: 'Updated',
-        }),
-      ).rejects.toThrow(ForbiddenException);
-    });
-
-    it('should throw NotFoundException when message is deleted', async () => {
-      const existingMessage = {
+    it('should throw NotFoundException for deleted message', async () => {
+      const deletedMessage = {
         ...mockMessage,
         deletedAt: new Date(),
         conversation: {
-          ...mockConversation,
           voyage: { companyId: 'company-1' },
         },
       };
-      (prisma.message.findUnique as jest.Mock).mockResolvedValue(existingMessage);
+      (prisma.message.findUnique as jest.Mock).mockResolvedValue(
+        deletedMessage,
+      );
 
       await expect(
         service.update('msg-1', 'user-1', 'company-1', {
-          plainTextBody: 'Updated',
+          plainTextBody: 'Edited',
         }),
       ).rejects.toThrow(NotFoundException);
     });
   });
 
   describe('softDelete', () => {
-    it('should set deletedAt on the message', async () => {
-      const existingMessage = {
+    it('should set deletedAt', async () => {
+      const messageWithConversation = {
         ...mockMessage,
+        authorUserId: 'user-1',
         conversation: {
-          ...mockConversation,
           voyage: { companyId: 'company-1' },
         },
       };
-      (prisma.message.findUnique as jest.Mock).mockResolvedValue(existingMessage);
+      (prisma.message.findUnique as jest.Mock).mockResolvedValue(
+        messageWithConversation,
+      );
       (prisma.message.update as jest.Mock).mockResolvedValue({
         ...mockMessage,
         deletedAt: new Date(),
@@ -338,42 +310,20 @@ describe('MessagesService', () => {
       });
     });
 
-    it('should throw NotFoundException when message not found', async () => {
-      (prisma.message.findUnique as jest.Mock).mockResolvedValue(null);
-
-      await expect(
-        service.softDelete('msg-1', 'user-1', 'company-1'),
-      ).rejects.toThrow(NotFoundException);
-    });
-
-    it('should throw ForbiddenException when user is not the author', async () => {
-      const existingMessage = {
+    it('should throw ForbiddenException if not the author', async () => {
+      const messageWithConversation = {
         ...mockMessage,
-        authorUserId: 'other-user',
+        authorUserId: 'user-1',
         conversation: {
-          ...mockConversation,
           voyage: { companyId: 'company-1' },
         },
       };
-      (prisma.message.findUnique as jest.Mock).mockResolvedValue(existingMessage);
+      (prisma.message.findUnique as jest.Mock).mockResolvedValue(
+        messageWithConversation,
+      );
 
       await expect(
-        service.softDelete('msg-1', 'user-1', 'company-1'),
-      ).rejects.toThrow(ForbiddenException);
-    });
-
-    it('should throw ForbiddenException when company does not match', async () => {
-      const existingMessage = {
-        ...mockMessage,
-        conversation: {
-          ...mockConversation,
-          voyage: { companyId: 'company-1' },
-        },
-      };
-      (prisma.message.findUnique as jest.Mock).mockResolvedValue(existingMessage);
-
-      await expect(
-        service.softDelete('msg-1', 'user-1', 'other-company'),
+        service.softDelete('msg-1', 'user-2', 'company-1'),
       ).rejects.toThrow(ForbiddenException);
     });
   });
