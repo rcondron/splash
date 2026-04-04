@@ -16,11 +16,15 @@ import {
   JwtPayload,
 } from '../common/decorators/current-user.decorator';
 import { RecapsService } from './recaps.service';
+import { PdfService } from '../common/services/pdf.service';
 
 @Controller()
 @UseGuards(JwtAuthGuard)
 export class RecapsController {
-  constructor(private readonly recapsService: RecapsService) {}
+  constructor(
+    private readonly recapsService: RecapsService,
+    private readonly pdfService: PdfService,
+  ) {}
 
   @Post('voyages/:voyageId/recaps/generate')
   async generate(
@@ -59,6 +63,20 @@ export class RecapsController {
     res.setHeader(
       'Content-Disposition',
       `attachment; filename="recap-${id}.html"`,
+    );
+    res.send(html);
+  }
+
+  @Get('recaps/:id/export/pdf')
+  async exportPdf(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Res() res: Response,
+  ) {
+    const html = await this.pdfService.generateRecapPdf(id);
+    res.setHeader('Content-Type', 'text/html');
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="recap-${id}.pdf.html"`,
     );
     res.send(html);
   }

@@ -4,13 +4,17 @@ import {
   ForbiddenException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma.service';
+import { AnalyticsService } from '../analytics/analytics.service';
 import { CreateVoyageDto } from './dto/create-voyage.dto';
 import { UpdateVoyageDto } from './dto/update-voyage.dto';
 import { Prisma, VoyageStatus } from '@prisma/client';
 
 @Injectable()
 export class VoyagesService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private analyticsService: AnalyticsService,
+  ) {}
 
   async create(companyId: string, userId: string, dto: CreateVoyageDto) {
     const voyage = await this.prisma.voyage.create({
@@ -56,6 +60,14 @@ export class VoyagesService {
         role: 'ADMIN',
       },
     });
+
+    this.analyticsService.track('voyage_created', {
+      voyageId: voyage.id,
+      voyageName: voyage.voyageName,
+      companyId,
+      vesselName: voyage.vesselName,
+      status: voyage.status,
+    }, userId);
 
     // Create audit event
     await this.prisma.auditEvent.create({

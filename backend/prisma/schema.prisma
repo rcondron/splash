@@ -306,7 +306,7 @@ model ExtractedTerm {
   proposedBy           ProposedBy
   approvedByUserId     String?          @db.Uuid
   createdAt            DateTime         @default(now())
-  supersededById       String?          @db.Uuid
+  supersededById       String?          @unique @db.Uuid
 
   voyage             Voyage        @relation(fields: [voyageId], references: [id])
   sourceMessage      Message?      @relation("TermSourceMessage", fields: [sourceMessageId], references: [id])

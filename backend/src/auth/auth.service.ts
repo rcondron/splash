@@ -7,6 +7,7 @@ import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcryptjs';
 import { PrismaService } from '../prisma.service';
+import { AnalyticsService } from '../analytics/analytics.service';
 import { RegisterDto } from './dto/register.dto';
 import { UserRole } from '@prisma/client';
 
@@ -16,6 +17,7 @@ export class AuthService {
     private prisma: PrismaService,
     private jwtService: JwtService,
     private configService: ConfigService,
+    private analyticsService: AnalyticsService,
   ) {}
 
   async register(dto: RegisterDto) {
@@ -53,6 +55,21 @@ export class AuthService {
     });
 
     const tokens = this.generateTokens(result.user);
+
+    this.analyticsService.track('user_register', {
+      email: result.user.email,
+      companyId: result.company.id,
+      companyName: result.company.displayName,
+    }, result.user.id);
+
+    this.analyticsService.identify(result.user.id, {
+      email: result.user.email,
+      firstName: result.user.firstName,
+      lastName: result.user.lastName,
+      companyId: result.company.id,
+      role: result.user.role,
+    });
+
     return {
       accessToken: tokens.accessToken,
       refreshToken: tokens.refreshToken,
@@ -71,6 +88,11 @@ export class AuthService {
     const company = await this.prisma.company.findUnique({
       where: { id: user.companyId },
     });
+
+    this.analyticsService.track('user_login', {
+      email: user.email,
+      companyId: user.companyId,
+    }, user.id);
 
     return {
       accessToken: tokens.accessToken,

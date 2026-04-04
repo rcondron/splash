@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/store/auth";
+import { ThemeToggle } from "@/components/theme-toggle";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
   DropdownMenu,
@@ -131,6 +132,11 @@ export function Sidebar({ notificationCount = 0 }: SidebarProps) {
             return link;
           })}
         </nav>
+
+        {/* Theme toggle */}
+        <div className="px-3 pb-1">
+          <ThemeToggle collapsed={collapsed} />
+        </div>
 
         {/* Collapse toggle */}
         <div className="px-3 pb-2">

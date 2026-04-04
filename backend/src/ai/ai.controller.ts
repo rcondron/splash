@@ -6,13 +6,22 @@ import {
   UseGuards,
   ParseUUIDPipe,
 } from '@nestjs/common';
+import { InjectQueue } from '@nestjs/bull';
+import { Queue } from 'bull';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import {
+  CurrentUser,
+  JwtPayload,
+} from '../common/decorators/current-user.decorator';
 import { AiService } from './ai.service';
 
 @Controller()
 @UseGuards(JwtAuthGuard)
 export class AiController {
-  constructor(private readonly aiService: AiService) {}
+  constructor(
+    private readonly aiService: AiService,
+    @InjectQueue('ai-extraction') private readonly aiExtractionQueue: Queue,
+  ) {}
 
   @Post('ai/summarize')
   async summarize(@Body('messages') messages: string[]) {
@@ -36,5 +45,17 @@ export class AiController {
     @Param('voyageId', ParseUUIDPipe) voyageId: string,
   ) {
     return this.aiService.extractTermsFromVoyageMessages(voyageId);
+  }
+
+  @Post('voyages/:voyageId/ai/extract-terms/async')
+  async extractVoyageTermsAsync(
+    @Param('voyageId', ParseUUIDPipe) voyageId: string,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    const job = await this.aiExtractionQueue.add({
+      voyageId,
+      triggeredByUserId: user.sub,
+    });
+    return { jobId: job.id, status: 'queued', voyageId };
   }
 }

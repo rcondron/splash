@@ -4,11 +4,15 @@ import {
   ForbiddenException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma.service';
+import { AnalyticsService } from '../analytics/analytics.service';
 import { MessageType, MessageSource } from '@prisma/client';
 
 @Injectable()
 export class MessagesService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private analyticsService: AnalyticsService,
+  ) {}
 
   async create(
     conversationId: string,
@@ -62,6 +66,13 @@ export class MessagesService {
       where: { id: conversation.voyage.id },
       data: { updatedAt: new Date() },
     });
+
+    this.analyticsService.track('message_sent', {
+      messageId: message.id,
+      conversationId,
+      voyageId: conversation.voyage.id,
+      messageType: message.messageType,
+    }, userId);
 
     // Create audit event for message creation
     await this.prisma.auditEvent.create({

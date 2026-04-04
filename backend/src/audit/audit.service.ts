@@ -30,7 +30,7 @@ export class AuditService {
         eventType: dto.eventType,
         entityType: dto.entityType,
         entityId: dto.entityId,
-        metadataJson: dto.metadata || null,
+        metadataJson: dto.metadata || undefined,
       },
     });
   }

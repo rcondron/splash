@@ -10,11 +10,15 @@ import {
 import { Response } from 'express';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { AuditService, AuditFilters } from './audit.service';
+import { PdfService } from '../common/services/pdf.service';
 
 @Controller()
 @UseGuards(JwtAuthGuard)
 export class AuditController {
-  constructor(private readonly auditService: AuditService) {}
+  constructor(
+    private readonly auditService: AuditService,
+    private readonly pdfService: PdfService,
+  ) {}
 
   @Get('voyages/:voyageId/audit')
   async list(
@@ -40,5 +44,19 @@ export class AuditController {
       `attachment; filename="audit-${voyageId}.json"`,
     );
     res.json(events);
+  }
+
+  @Get('audit/export/:voyageId/pdf')
+  async exportPdf(
+    @Param('voyageId', ParseUUIDPipe) voyageId: string,
+    @Res() res: Response,
+  ) {
+    const html = await this.pdfService.generateAuditPdf(voyageId);
+    res.setHeader('Content-Type', 'text/html');
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="audit-${voyageId}.pdf.html"`,
+    );
+    res.send(html);
   }
 }

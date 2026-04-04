@@ -12,12 +12,16 @@ import { FilesModule } from './files/files.module';
 import { AiModule } from './ai/ai.module';
 import { ExtractedTermsModule } from './extracted-terms/extracted-terms.module';
 import { RecapsModule } from './recaps/recaps.module';
+import { DealSnapshotsModule } from './deal-snapshots/deal-snapshots.module';
 import { ContractsModule } from './contracts/contracts.module';
 import { AuditModule } from './audit/audit.module';
 import { SearchModule } from './search/search.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { EmailIntegrationsModule } from './email-integrations/email-integrations.module';
 import { WebSocketModule } from './websocket/websocket.module';
+import { AnalyticsModule } from './analytics/analytics.module';
+import { PdfModule } from './common/services/pdf.module';
+import { JobsModule } from './jobs/jobs.module';
 
 @Module({
   imports: [
@@ -43,12 +47,16 @@ import { WebSocketModule } from './websocket/websocket.module';
     AiModule,
     ExtractedTermsModule,
     RecapsModule,
+    DealSnapshotsModule,
     ContractsModule,
     AuditModule,
     SearchModule,
     NotificationsModule,
     EmailIntegrationsModule,
     WebSocketModule,
+    AnalyticsModule,
+    PdfModule,
+    JobsModule,
   ],
 })
 export class AppModule {}

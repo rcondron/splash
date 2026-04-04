@@ -2,6 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma.service';
 import { AiService } from '../ai/ai.service';
 import { AuditService } from '../audit/audit.service';
+import { AnalyticsService } from '../analytics/analytics.service';
 import { ExtractionStatus, GeneratedBy } from '@prisma/client';
 
 @Injectable()
@@ -10,6 +11,7 @@ export class RecapsService {
     private readonly prisma: PrismaService,
     private readonly aiService: AiService,
     private readonly auditService: AuditService,
+    private readonly analyticsService: AnalyticsService,
   ) {}
 
   async generateRecap(voyageId: string, userId: string) {
@@ -74,6 +76,14 @@ export class RecapsService {
         createdByUserId: userId,
       },
     });
+
+    this.analyticsService.track('recap_generated', {
+      recapId: recap.id,
+      voyageId,
+      versionNumber,
+      termCount: terms.length,
+      aiModel: aiResponse.model,
+    }, userId);
 
     await this.auditService.createEvent({
       voyageId,
