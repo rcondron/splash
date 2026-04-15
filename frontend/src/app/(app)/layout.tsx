@@ -2,35 +2,58 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Search, Bell } from "lucide-react";
 import { useAuthStore } from "@/store/auth";
+import { quintApi } from "@/lib/api";
+import { isSpoofAuthToken } from "@/lib/spoof";
 import { Sidebar } from "@/components/sidebar";
-import { Input } from "@/components/ui/input";
-import { api } from "@/lib/api";
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const { isAuthenticated, token } = useAuthStore();
-  const [notificationCount, setNotificationCount] = useState(0);
   const [ready, setReady] = useState(false);
+  const [authHydrated, setAuthHydrated] = useState(false);
+  const [unreadCount, setUnreadCount] = useState(0);
 
   useEffect(() => {
+    const unsub = useAuthStore.persist.onFinishHydration(() =>
+      setAuthHydrated(true),
+    );
+    if (useAuthStore.persist.hasHydrated()) {
+      setAuthHydrated(true);
+    }
+    return unsub;
+  }, []);
+
+  useEffect(() => {
+    if (!authHydrated) return;
     if (!isAuthenticated || !token) {
       router.replace("/auth/login");
     } else {
       setReady(true);
     }
-  }, [isAuthenticated, token, router]);
+  }, [authHydrated, isAuthenticated, token, router]);
 
   useEffect(() => {
-    if (!ready) return;
-    api
-      .get<{ unreadCount: number }>("/notifications/unread-count")
-      .then((res) => setNotificationCount(res.unreadCount))
+    if (!ready || !token) return;
+    if (isSpoofAuthToken(token)) {
+      setUnreadCount(0);
+      return;
+    }
+    quintApi
+      .get<{ success: boolean; total: number }>("/v1/users/me/unread")
+      .then((res) => setUnreadCount(res.total ?? 0))
       .catch(() => {});
-  }, [ready]);
 
-  if (!ready) {
+    const interval = setInterval(() => {
+      quintApi
+        .get<{ success: boolean; total: number }>("/v1/users/me/unread")
+        .then((res) => setUnreadCount(res.total ?? 0))
+        .catch(() => {});
+    }, 15000);
+    return () => clearInterval(interval);
+  }, [ready, token]);
+
+  if (!authHydrated || !ready) {
     return (
       <div className="flex h-screen items-center justify-center bg-slate-50">
         <div className="flex flex-col items-center gap-3">
@@ -43,33 +66,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="flex h-screen overflow-hidden bg-slate-50">
-      <Sidebar notificationCount={notificationCount} />
+      <Sidebar unreadCount={unreadCount} />
       <div className="flex flex-1 flex-col overflow-hidden">
-        {/* Top bar */}
-        <header className="flex h-16 shrink-0 items-center gap-4 border-b bg-white px-6">
-          <div className="relative flex-1 max-w-md">
-            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-            <Input
-              placeholder="Search voyages, contacts..."
-              className="h-9 pl-9 bg-slate-50 border-slate-200"
-            />
-          </div>
-          <div className="flex items-center gap-2 ml-auto">
-            <button
-              onClick={() => router.push("/notifications")}
-              className="relative rounded-lg p-2 text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-700"
-            >
-              <Bell className="h-5 w-5" />
-              {notificationCount > 0 && (
-                <span className="absolute right-1 top-1 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-blue-600 px-1 text-[10px] font-bold text-white">
-                  {notificationCount > 99 ? "99+" : notificationCount}
-                </span>
-              )}
-            </button>
-          </div>
-        </header>
-
-        {/* Content */}
         <main className="flex-1 overflow-auto p-6">{children}</main>
       </div>
     </div>

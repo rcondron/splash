@@ -67,8 +67,8 @@ npx prisma migrate dev
 npx prisma db seed
 
 # Access the app
-# Frontend: http://localhost:3000
-# Backend API: http://localhost:3001
+# Frontend: http://localhost:3010
+# Backend API: http://localhost:3011
 ```
 
 ### Local Development (without Docker)

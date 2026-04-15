@@ -10,7 +10,7 @@ async function bootstrap() {
   const configService = app.get(ConfigService);
 
   app.enableCors({
-    origin: configService.get<string>('CORS_ORIGIN', 'http://localhost:3000'),
+    origin: configService.get<string>('CORS_ORIGIN', 'http://localhost:3010'),
     credentials: true,
   });
 
@@ -27,7 +27,7 @@ async function bootstrap() {
 
   app.useWebSocketAdapter(new IoAdapter(app));
 
-  const port = configService.get<number>('PORT', 3001);
+  const port = configService.get<number>('PORT', 3011);
   await app.listen(port);
   console.log(`SPLASH API running on port ${port}`);
 }

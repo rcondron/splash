@@ -3,12 +3,10 @@
 import { useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
+import Image from "next/image";
 import {
-  Anchor,
   LayoutDashboard,
-  Ship,
-  Search,
-  Bell,
+  MessageCircle,
   Settings,
   LogOut,
   ChevronLeft,
@@ -16,8 +14,8 @@ import {
   User as UserIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { getAvatarSrc } from "@/lib/avatar-url";
 import { useAuthStore } from "@/store/auth";
-import { ThemeToggle } from "@/components/theme-toggle";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
   DropdownMenu,
@@ -36,17 +34,15 @@ import {
 
 const navItems = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/voyages", label: "Voyages", icon: Ship },
-  { href: "/search", label: "Search", icon: Search },
-  { href: "/notifications", label: "Notifications", icon: Bell },
+  { href: "/chat", label: "Chat", icon: MessageCircle },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
 
 interface SidebarProps {
-  notificationCount?: number;
+  unreadCount?: number;
 }
 
-export function Sidebar({ notificationCount = 0 }: SidebarProps) {
+export function Sidebar({ unreadCount = 0 }: SidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
   const { user, logout } = useAuthStore();
@@ -71,9 +67,13 @@ export function Sidebar({ notificationCount = 0 }: SidebarProps) {
       >
         {/* Brand */}
         <div className="flex h-16 items-center gap-3 border-b border-slate-800 px-4">
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-blue-600">
-            <Anchor className="h-5 w-5 text-white" />
-          </div>
+          <Image
+            src="/logo.webp"
+            alt="SPLASH"
+            width={36}
+            height={36}
+            className="shrink-0 rounded-lg"
+          />
           {!collapsed && (
             <span className="text-lg font-bold tracking-tight text-white">
               SPLASH
@@ -87,7 +87,8 @@ export function Sidebar({ notificationCount = 0 }: SidebarProps) {
             const isActive =
               pathname === item.href || pathname.startsWith(item.href + "/");
             const Icon = item.icon;
-            const showBadge = item.href === "/notifications" && notificationCount > 0;
+            const showBadge =
+              item.href === "/chat" && unreadCount > 0;
 
             const link = (
               <Link
@@ -100,7 +101,12 @@ export function Sidebar({ notificationCount = 0 }: SidebarProps) {
                     : "text-slate-400 hover:bg-slate-800/60 hover:text-white",
                 )}
               >
-                <Icon className={cn("h-5 w-5 shrink-0", isActive && "text-blue-400")} />
+                <Icon
+                  className={cn(
+                    "h-5 w-5 shrink-0",
+                    isActive && "text-blue-400",
+                  )}
+                />
                 {!collapsed && <span>{item.label}</span>}
                 {showBadge && (
                   <span
@@ -109,7 +115,7 @@ export function Sidebar({ notificationCount = 0 }: SidebarProps) {
                       collapsed ? "absolute -right-1 -top-1" : "ml-auto",
                     )}
                   >
-                    {notificationCount > 99 ? "99+" : notificationCount}
+                    {unreadCount > 99 ? "99+" : unreadCount}
                   </span>
                 )}
                 {isActive && (
@@ -132,11 +138,6 @@ export function Sidebar({ notificationCount = 0 }: SidebarProps) {
             return link;
           })}
         </nav>
-
-        {/* Theme toggle */}
-        <div className="px-3 pb-1">
-          <ThemeToggle collapsed={collapsed} />
-        </div>
 
         {/* Collapse toggle */}
         <div className="px-3 pb-2">
@@ -166,7 +167,7 @@ export function Sidebar({ notificationCount = 0 }: SidebarProps) {
                 )}
               >
                 <Avatar className="h-8 w-8 shrink-0">
-                  <AvatarImage src={user?.avatarUrl ?? undefined} />
+                  <AvatarImage src={getAvatarSrc(user?.avatarUrl)} />
                   <AvatarFallback className="bg-blue-600 text-xs text-white">
                     {initials}
                   </AvatarFallback>
@@ -185,7 +186,9 @@ export function Sidebar({ notificationCount = 0 }: SidebarProps) {
             </DropdownMenuTrigger>
             <DropdownMenuContent side="top" align="start" className="w-56">
               <DropdownMenuLabel>
-                <div className="truncate">{user?.firstName} {user?.lastName}</div>
+                <div className="truncate">
+                  {user?.firstName} {user?.lastName}
+                </div>
                 <div className="truncate text-xs font-normal text-muted-foreground">
                   {user?.email}
                 </div>
@@ -200,7 +203,10 @@ export function Sidebar({ notificationCount = 0 }: SidebarProps) {
                 Settings
               </DropdownMenuItem>
               <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={handleLogout} className="text-red-400 focus:text-red-400">
+              <DropdownMenuItem
+                onClick={handleLogout}
+                className="text-red-400 focus:text-red-400"
+              >
                 <LogOut className="mr-2 h-4 w-4" />
                 Sign out
               </DropdownMenuItem>

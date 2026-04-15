@@ -1,7 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, useRef } from "react";
-import { getSocket, connectSocket } from "@/lib/socket";
+import { useCallback } from "react";
 import type { Message } from "@/types";
 
 interface UseSocketReturn {
@@ -16,91 +15,23 @@ interface UseSocketReturn {
   emitTyping: (conversationId: string) => void;
 }
 
+/**
+ * Stub — Socket.IO is disabled while using the remote Quint API.
+ * Keeps the interface so existing call-sites don't break.
+ */
 export function useSocket(): UseSocketReturn {
-  const [isConnected, setIsConnected] = useState(false);
-  const socketRef = useRef(getSocket());
-
-  useEffect(() => {
-    const socket = socketRef.current;
-    connectSocket();
-
-    const handleConnect = () => setIsConnected(true);
-    const handleDisconnect = () => setIsConnected(false);
-
-    socket.on("connect", handleConnect);
-    socket.on("disconnect", handleDisconnect);
-
-    // Set initial state
-    setIsConnected(socket.connected);
-
-    return () => {
-      socket.off("connect", handleConnect);
-      socket.off("disconnect", handleDisconnect);
-    };
-  }, []);
-
-  const joinVoyage = useCallback((voyageId: string) => {
-    const socket = socketRef.current;
-    if (socket.connected) {
-      socket.emit("join:voyage", { voyageId });
-    }
-  }, []);
-
-  const leaveVoyage = useCallback((voyageId: string) => {
-    const socket = socketRef.current;
-    if (socket.connected) {
-      socket.emit("leave:voyage", { voyageId });
-    }
-  }, []);
-
-  const sendMessage = useCallback(
-    (conversationId: string, content: string) => {
-      const socket = socketRef.current;
-      if (socket.connected) {
-        socket.emit("message:send", { conversationId, content });
-      }
-    },
-    [],
-  );
-
-  const onNewMessage = useCallback(
-    (callback: (message: Message) => void): (() => void) => {
-      const socket = socketRef.current;
-      socket.on("message:new", callback);
-      return () => {
-        socket.off("message:new", callback);
-      };
-    },
-    [],
-  );
-
-  const onTyping = useCallback(
-    (
-      callback: (data: { userId: string; conversationId: string }) => void,
-    ): (() => void) => {
-      const socket = socketRef.current;
-      socket.on("typing", callback);
-      return () => {
-        socket.off("typing", callback);
-      };
-    },
-    [],
-  );
-
-  const emitTyping = useCallback((conversationId: string) => {
-    const socket = socketRef.current;
-    if (socket.connected) {
-      socket.emit("typing", { conversationId });
-    }
-  }, []);
+  const noop = useCallback(() => {}, []);
+  const noopUnsub = useCallback((_cb: unknown) => () => {}, []);
 
   return {
-    isConnected,
-    joinVoyage,
-    leaveVoyage,
-    sendMessage,
-    onNewMessage,
-    onTyping,
-    emitTyping,
+    isConnected: false,
+    joinVoyage: noop as (voyageId: string) => void,
+    leaveVoyage: noop as (voyageId: string) => void,
+    sendMessage: noop as (conversationId: string, content: string) => void,
+    onNewMessage: noopUnsub as (callback: (message: Message) => void) => () => void,
+    onTyping: noopUnsub as (
+      callback: (data: { userId: string; conversationId: string }) => void,
+    ) => () => void,
+    emitTyping: noop as (conversationId: string) => void,
   };
 }

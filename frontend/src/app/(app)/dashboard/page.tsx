@@ -1,400 +1,301 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
 import {
   Ship,
-  FileText,
-  MessageSquare,
-  ScrollText,
-  Plus,
-  Mail,
-  Clock,
-  ArrowRight,
+  Languages,
+  BookOpen,
+  Cpu,
+  Search,
   Loader2,
-  TrendingUp,
+  CheckCircle2,
+  XCircle,
+  Send,
   Anchor,
+  Sparkles,
+  Activity,
+  HardDrive,
+  MemoryStick,
+  FileText,
 } from "lucide-react";
 import { useAuthStore } from "@/store/auth";
-import { api } from "@/lib/api";
-import { Voyage, VoyageStatus } from "@/types";
+import { quintApi } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 
-interface DashboardStats {
-  activeVoyages: number;
-  pendingTerms: number;
-  recentMessages: number;
-  recapsGenerated: number;
+interface HealthStatus {
+  status: string;
+  database?: { connected: boolean; status: string };
+  timestamp?: string;
 }
 
-interface ActivityItem {
-  id: string;
-  action: string;
-  entityType: string;
-  entityId: string;
-  details: Record<string, unknown> | null;
-  createdAt: string;
-  user?: { firstName: string; lastName: string };
-  voyage?: { reference: string };
+interface AiStatus {
+  status?: string;
+  phase?: string;
+  implementation?: string;
+  ticket?: string;
+  capabilities?: string[];
+  endpoints?: Record<string, string>;
 }
 
-const statusConfig: Record<
-  string,
-  { label: string; className: string }
-> = {
-  draft: {
-    label: "Draft",
-    className: "bg-slate-100 text-slate-700 border-slate-200",
-  },
-  inquiry: {
-    label: "Inquiry",
-    className: "bg-amber-50 text-amber-700 border-amber-200",
-  },
-  negotiation: {
-    label: "Negotiating",
-    className: "bg-yellow-50 text-yellow-700 border-yellow-200",
-  },
-  subjects: {
-    label: "On Subjects",
-    className: "bg-orange-50 text-orange-700 border-orange-200",
-  },
-  fixed: {
-    label: "Fixed",
-    className: "bg-green-50 text-green-700 border-green-200",
-  },
-  failed: {
-    label: "Failed",
-    className: "bg-red-50 text-red-700 border-red-200",
-  },
-  cancelled: {
-    label: "Cancelled",
-    className: "bg-slate-100 text-slate-500 border-slate-200",
-  },
-};
-
-function getStatusBadge(status: string) {
-  const config = statusConfig[status] ?? statusConfig.draft;
-  return (
-    <Badge variant="outline" className={cn("font-medium", config.className)}>
-      {config.label}
-    </Badge>
-  );
+interface SystemStats {
+  system?: {
+    cpu_percent?: number;
+    memory_percent?: number;
+  };
+  connection_pool?: Record<string, unknown>;
 }
 
-function timeAgo(dateStr: string) {
-  const now = new Date();
-  const date = new Date(dateStr);
-  const diffMs = now.getTime() - date.getTime();
-  const diffMin = Math.floor(diffMs / 60000);
-  if (diffMin < 1) return "Just now";
-  if (diffMin < 60) return `${diffMin}m ago`;
-  const diffHours = Math.floor(diffMin / 60);
-  if (diffHours < 24) return `${diffHours}h ago`;
-  const diffDays = Math.floor(diffHours / 24);
-  if (diffDays < 7) return `${diffDays}d ago`;
-  return date.toLocaleDateString();
+interface Metrics {
+  metrics?: {
+    uptime_hours?: number;
+    requests_total?: number;
+    cpu_usage?: { usage_percent?: number; count?: number };
+    memory_usage?: { used_gb?: number; total_gb?: number; usage_percent?: number };
+    disk_usage?: { used_gb?: number; total_gb?: number; usage_percent?: number };
+  };
 }
 
 export default function DashboardPage() {
-  const router = useRouter();
   const { user } = useAuthStore();
-  const [stats, setStats] = useState<DashboardStats>({
-    activeVoyages: 0,
-    pendingTerms: 0,
-    recentMessages: 0,
-    recapsGenerated: 0,
-  });
-  const [voyages, setVoyages] = useState<Voyage[]>([]);
-  const [activity, setActivity] = useState<ActivityItem[]>([]);
-  const [loading, setLoading] = useState(true);
+
+  const [health, setHealth] = useState<HealthStatus | null>(null);
+  const [aiStatus, setAiStatus] = useState<AiStatus | null>(null);
+  const [stats, setStats] = useState<SystemStats | null>(null);
+  const [metrics, setMetrics] = useState<Metrics | null>(null);
+  const [statusLoading, setStatusLoading] = useState(true);
+
+  const [translateInput, setTranslateInput] = useState("");
+  const [translateResult, setTranslateResult] = useState<Record<string, unknown> | null>(null);
+  const [translateLoading, setTranslateLoading] = useState(false);
+
+  const [vesselImo, setVesselImo] = useState("");
+  const [vesselResult, setVesselResult] = useState<Record<string, unknown> | null>(null);
+  const [vesselLoading, setVesselLoading] = useState(false);
+
+  const [glossary, setGlossary] = useState<Array<{ term: string; definition?: string; term_display?: string; category?: string;[k: string]: unknown }> | null>(null);
+  const [glossaryLoading, setGlossaryLoading] = useState(false);
+
+  const [entityInput, setEntityInput] = useState("");
+  const [entityResult, setEntityResult] = useState<Record<string, unknown> | null>(null);
+  const [entityLoading, setEntityLoading] = useState(false);
+
+  const [voyageInput, setVoyageInput] = useState("");
+  const [voyageResult, setVoyageResult] = useState<Record<string, unknown> | null>(null);
+  const [voyageLoading, setVoyageLoading] = useState(false);
 
   useEffect(() => {
-    async function fetchDashboard() {
-      setLoading(true);
-      try {
-        const [voyagesRes, statsRes, activityRes] = await Promise.allSettled([
-          api.get<{ data: Voyage[] }>("/voyages?limit=5&sortBy=updatedAt&sortOrder=desc"),
-          api.get<DashboardStats>("/dashboard/stats"),
-          api.get<{ data: ActivityItem[] }>("/audit?limit=8"),
-        ]);
-
-        if (voyagesRes.status === "fulfilled") {
-          const data = voyagesRes.value;
-          const list = Array.isArray(data) ? data : data?.data ?? [];
-          setVoyages(list);
-        }
-
-        if (statsRes.status === "fulfilled") {
-          setStats(statsRes.value);
-        } else {
-          // Derive stats from voyages if stats endpoint unavailable
-          if (voyagesRes.status === "fulfilled") {
-            const list = Array.isArray(voyagesRes.value)
-              ? voyagesRes.value
-              : voyagesRes.value?.data ?? [];
-            const activeStatuses = [
-              VoyageStatus.INQUIRY,
-              VoyageStatus.NEGOTIATION,
-              VoyageStatus.SUBJECTS,
-              VoyageStatus.FIXED,
-            ];
-            setStats((prev) => ({
-              ...prev,
-              activeVoyages: list.filter((v: Voyage) =>
-                activeStatuses.includes(v.status)
-              ).length,
-            }));
-          }
-        }
-
-        if (activityRes.status === "fulfilled") {
-          const data = activityRes.value;
-          setActivity(Array.isArray(data) ? data : data?.data ?? []);
-        }
-      } catch {
-        // Silently handle - dashboard degrades gracefully
-      } finally {
-        setLoading(false);
-      }
+    async function fetchStatus() {
+      setStatusLoading(true);
+      const [h, ai, s, m] = await Promise.allSettled([
+        quintApi.get<HealthStatus>("/v1/health"),
+        quintApi.get<AiStatus>("/v1/ai/v181/status"),
+        quintApi.get<SystemStats>("/v1/stats"),
+        quintApi.get<Metrics>("/v1/metrics"),
+      ]);
+      if (h.status === "fulfilled") setHealth(h.value);
+      if (ai.status === "fulfilled") setAiStatus(ai.value);
+      if (s.status === "fulfilled") setStats(s.value);
+      if (m.status === "fulfilled") setMetrics(m.value);
+      setStatusLoading(false);
     }
-
-    fetchDashboard();
+    fetchStatus();
   }, []);
 
-  const statCards = [
-    {
-      title: "Active Voyages",
-      value: stats.activeVoyages,
-      icon: Ship,
-      color: "text-blue-600",
-      bgColor: "bg-blue-50",
-    },
-    {
-      title: "Pending Terms",
-      value: stats.pendingTerms,
-      icon: FileText,
-      color: "text-amber-600",
-      bgColor: "bg-amber-50",
-    },
-    {
-      title: "Recent Messages",
-      value: stats.recentMessages,
-      icon: MessageSquare,
-      color: "text-emerald-600",
-      bgColor: "bg-emerald-50",
-    },
-    {
-      title: "Recaps Generated",
-      value: stats.recapsGenerated,
-      icon: ScrollText,
-      color: "text-violet-600",
-      bgColor: "bg-violet-50",
-    },
-  ];
+  const handleTranslate = async () => {
+    if (!translateInput.trim()) return;
+    setTranslateLoading(true);
+    setTranslateResult(null);
+    try {
+      const res = await quintApi.post<Record<string, unknown>>("/v1/ai/v181/translate", { text: translateInput });
+      setTranslateResult(res);
+    } catch (err) {
+      setTranslateResult({ error: err instanceof Error ? err.message : "Failed" });
+    } finally {
+      setTranslateLoading(false);
+    }
+  };
 
-  if (loading) {
-    return (
-      <div className="flex h-[60vh] items-center justify-center">
-        <div className="flex flex-col items-center gap-3">
-          <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
-          <span className="text-sm text-slate-500">Loading dashboard...</span>
-        </div>
-      </div>
-    );
-  }
+  const handleVesselLookup = async () => {
+    if (!vesselImo.trim()) return;
+    setVesselLoading(true);
+    setVesselResult(null);
+    try {
+      const res = await quintApi.get<Record<string, unknown>>(`/v1/ai/v181/vessel/lookup?imo=${vesselImo.trim()}`);
+      setVesselResult(res);
+    } catch (err) {
+      setVesselResult({ error: err instanceof Error ? err.message : "Failed" });
+    } finally {
+      setVesselLoading(false);
+    }
+  };
+
+  const handleGlossary = async () => {
+    setGlossaryLoading(true);
+    setGlossary(null);
+    try {
+      const res = await quintApi.get<{ items?: Array<Record<string, unknown>> } | Array<Record<string, unknown>>>("/v1/ai/v181/glossary");
+      const items = Array.isArray(res) ? res : (res as { items: Array<Record<string, unknown>> }).items ?? [];
+      setGlossary(items as typeof glossary);
+    } catch (err) {
+      setGlossary([{ term: "Error", definition: err instanceof Error ? err.message : "Failed" }]);
+    } finally {
+      setGlossaryLoading(false);
+    }
+  };
+
+  const handleEntityExtract = async () => {
+    if (!entityInput.trim()) return;
+    setEntityLoading(true);
+    setEntityResult(null);
+    try {
+      const res = await quintApi.post<Record<string, unknown>>("/v1/ai/v181/entities/extract", { text: entityInput });
+      setEntityResult(res);
+    } catch (err) {
+      setEntityResult({ error: err instanceof Error ? err.message : "Failed" });
+    } finally {
+      setEntityLoading(false);
+    }
+  };
+
+  const handleVoyageExtract = async () => {
+    if (!voyageInput.trim()) return;
+    setVoyageLoading(true);
+    setVoyageResult(null);
+    try {
+      const res = await quintApi.post<Record<string, unknown>>("/v1/ai/v181/voyage/extract", { messages: [voyageInput] });
+      setVoyageResult(res);
+    } catch (err) {
+      setVoyageResult({ error: err instanceof Error ? err.message : "Failed" });
+    } finally {
+      setVoyageLoading(false);
+    }
+  };
+
+  const healthy = health?.status === "healthy";
+  const dbOk = health?.database?.connected === true;
+  const m = metrics?.metrics;
+  const cpuPct = m?.cpu_usage?.usage_percent ?? stats?.system?.cpu_percent;
+  const memPct = m?.memory_usage?.usage_percent ?? stats?.system?.memory_percent;
+  const diskPct = m?.disk_usage?.usage_percent;
+  const uptime = m?.uptime_hours;
+  const totalReqs = m?.requests_total;
 
   return (
     <div className="space-y-8">
       {/* Welcome Header */}
-      <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900">
-            Welcome back, {user?.firstName ?? "Captain"}
-          </h1>
-          <p className="text-sm text-slate-500">
-            Here is what is happening across your voyages today.
-          </p>
-        </div>
-        <div className="flex gap-2 mt-3 sm:mt-0">
-          <Button
-            onClick={() => router.push("/voyages/new")}
-            className="bg-blue-600 hover:bg-blue-700 text-white"
-          >
-            <Plus className="mr-2 h-4 w-4" />
-            Create Voyage
-          </Button>
-          <Button
-            variant="outline"
-            onClick={() => router.push("/voyages?action=import")}
-          >
-            <Mail className="mr-2 h-4 w-4" />
-            Import Email
-          </Button>
-        </div>
+      <div className="flex flex-col gap-1">
+        <h1 className="text-2xl font-bold text-slate-900">
+          Welcome back, {user?.firstName ?? "Captain"}
+        </h1>
+        <p className="text-sm text-slate-500">
+          Quint AI maritime tools — connected to the remote API.
+        </p>
       </div>
 
-      {/* Stats Cards */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        {statCards.map((card) => {
-          const Icon = card.icon;
-          return (
-            <Card key={card.title} className="border-slate-200">
-              <CardContent className="p-6">
-                <div className="flex items-center justify-between">
-                  <div className="space-y-1">
-                    <p className="text-sm font-medium text-slate-500">
-                      {card.title}
-                    </p>
-                    <p className="text-3xl font-bold text-slate-900">
-                      {card.value}
-                    </p>
-                  </div>
-                  <div
-                    className={cn(
-                      "flex h-12 w-12 items-center justify-center rounded-lg",
-                      card.bgColor
-                    )}
-                  >
-                    <Icon className={cn("h-6 w-6", card.color)} />
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          );
-        })}
+      {/* Status + System Cards */}
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-6">
+        <StatusCard
+          title="API Health"
+          loading={statusLoading}
+          ok={healthy}
+          okLabel="Healthy"
+          failLabel="Unavailable"
+          icon={<Cpu className="h-6 w-6 text-emerald-600" />}
+          bgColor="bg-emerald-50"
+        />
+        <StatusCard
+          title="Database"
+          loading={statusLoading}
+          ok={dbOk}
+          okLabel="Connected"
+          failLabel="Unknown"
+          icon={<Anchor className="h-6 w-6 text-blue-600" />}
+          bgColor="bg-blue-50"
+        />
+        <StatusCard
+          title="AI Engine"
+          loading={statusLoading}
+          ok={!!aiStatus}
+          okLabel={`Phase ${aiStatus?.phase ?? "?"}`}
+          failLabel="Unavailable"
+          icon={<Sparkles className="h-6 w-6 text-violet-600" />}
+          bgColor="bg-violet-50"
+        />
+        <MetricCard title="CPU" value={cpuPct != null ? `${cpuPct.toFixed(1)}%` : "—"} loading={statusLoading} icon={<Activity className="h-5 w-5 text-amber-600" />} />
+        <MetricCard title="Memory" value={memPct != null ? `${memPct.toFixed(1)}%` : "—"} loading={statusLoading} icon={<MemoryStick className="h-5 w-5 text-rose-600" />} />
+        <MetricCard title="Disk" value={diskPct != null ? `${diskPct.toFixed(1)}%` : "—"} loading={statusLoading} icon={<HardDrive className="h-5 w-5 text-cyan-600" />} />
       </div>
 
-      {/* Main Content Grid */}
-      <div className="grid gap-6 lg:grid-cols-3">
-        {/* Recent Voyages */}
+      {uptime != null && (
+        <div className="flex flex-wrap gap-4 text-xs text-slate-500">
+          <span>Uptime: <strong className="text-slate-700">{uptime.toFixed(1)}h</strong></span>
+          {totalReqs != null && <span>Requests served: <strong className="text-slate-700">{totalReqs.toLocaleString()}</strong></span>}
+        </div>
+      )}
+
+      {/* AI capabilities */}
+      {aiStatus?.capabilities && (
+        <div className="flex flex-wrap gap-2">
+          {aiStatus.capabilities.map((cap) => (
+            <span key={cap} className="rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-xs font-medium text-blue-700">
+              {cap.replace(/_/g, " ")}
+            </span>
+          ))}
+        </div>
+      )}
+
+      {/* Tool Cards */}
+      <div className="grid gap-6 lg:grid-cols-2">
+        <ToolCard title="Maritime Translation" icon={<Languages className="h-5 w-5 text-blue-600" />}>
+          <ToolInput placeholder="Enter maritime text to translate…" value={translateInput} onChange={setTranslateInput} onSubmit={handleTranslate} loading={translateLoading} />
+          <ResultPre data={translateResult} />
+        </ToolCard>
+
+        <ToolCard title="Vessel Lookup" icon={<Ship className="h-5 w-5 text-blue-600" />}>
+          <ToolInput placeholder="Enter 7-digit IMO number…" value={vesselImo} onChange={setVesselImo} onSubmit={handleVesselLookup} loading={vesselLoading} buttonIcon={<Search className="h-4 w-4" />} />
+          <ResultPre data={vesselResult} />
+        </ToolCard>
+
+        <ToolCard title="Entity Extraction" icon={<Sparkles className="h-5 w-5 text-violet-600" />} buttonColor="bg-violet-600 hover:bg-violet-700">
+          <ToolInput placeholder="Paste maritime text to extract entities…" value={entityInput} onChange={setEntityInput} onSubmit={handleEntityExtract} loading={entityLoading} color="violet" />
+          <ResultPre data={entityResult} />
+        </ToolCard>
+
+        <ToolCard title="Voyage Extraction" icon={<FileText className="h-5 w-5 text-emerald-600" />}>
+          <ToolInput placeholder="Paste fixture / recap text to extract voyage data…" value={voyageInput} onChange={setVoyageInput} onSubmit={handleVoyageExtract} loading={voyageLoading} color="emerald" />
+          <ResultPre data={voyageResult} />
+        </ToolCard>
+
+        {/* Glossary */}
         <Card className="border-slate-200 lg:col-span-2">
           <CardHeader className="flex flex-row items-center justify-between pb-4">
-            <CardTitle className="text-lg font-semibold text-slate-900">
-              Recent Voyages
+            <CardTitle className="flex items-center gap-2 text-lg font-semibold text-slate-900">
+              <BookOpen className="h-5 w-5 text-amber-600" />
+              Maritime Glossary
             </CardTitle>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => router.push("/voyages")}
-              className="text-blue-600 hover:text-blue-700"
-            >
-              View all
-              <ArrowRight className="ml-1 h-4 w-4" />
+            <Button onClick={handleGlossary} disabled={glossaryLoading} variant="outline" size="sm">
+              {glossaryLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <BookOpen className="mr-2 h-4 w-4" />}
+              Load Glossary
             </Button>
           </CardHeader>
           <CardContent>
-            {voyages.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-12 text-center">
-                <div className="flex h-14 w-14 items-center justify-center rounded-full bg-slate-100 mb-4">
-                  <Anchor className="h-7 w-7 text-slate-400" />
-                </div>
-                <p className="text-sm font-medium text-slate-900">
-                  No voyages yet
-                </p>
-                <p className="mt-1 text-sm text-slate-500">
-                  Create your first voyage to get started.
-                </p>
-                <Button
-                  size="sm"
-                  className="mt-4 bg-blue-600 hover:bg-blue-700 text-white"
-                  onClick={() => router.push("/voyages/new")}
-                >
-                  <Plus className="mr-2 h-4 w-4" />
-                  Create Voyage
-                </Button>
-              </div>
-            ) : (
-              <div className="space-y-1">
-                {/* Table header */}
-                <div className="grid grid-cols-12 gap-4 px-3 py-2 text-xs font-medium uppercase tracking-wider text-slate-400">
-                  <div className="col-span-3">Reference</div>
-                  <div className="col-span-2">Status</div>
-                  <div className="col-span-3">Route</div>
-                  <div className="col-span-2">Cargo</div>
-                  <div className="col-span-2 text-right">Updated</div>
-                </div>
-                {voyages.map((voyage) => (
-                  <button
-                    key={voyage.id}
-                    onClick={() => router.push(`/voyages/${voyage.id}`)}
-                    className="grid w-full grid-cols-12 gap-4 rounded-lg px-3 py-3 text-left text-sm transition-colors hover:bg-slate-50"
-                  >
-                    <div className="col-span-3 font-medium text-slate-900 truncate">
-                      {voyage.reference}
-                    </div>
-                    <div className="col-span-2">
-                      {getStatusBadge(voyage.status)}
-                    </div>
-                    <div className="col-span-3 text-slate-600 truncate">
-                      {voyage.loadPort && voyage.dischargePort
-                        ? `${voyage.loadPort} - ${voyage.dischargePort}`
-                        : voyage.loadPort || voyage.dischargePort || "--"}
-                    </div>
-                    <div className="col-span-2 text-slate-600 truncate">
-                      {voyage.cargoType ?? "--"}
-                    </div>
-                    <div className="col-span-2 text-right text-slate-400">
-                      {timeAgo(voyage.updatedAt)}
-                    </div>
-                  </button>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Activity Feed */}
-        <Card className="border-slate-200">
-          <CardHeader className="pb-4">
-            <CardTitle className="text-lg font-semibold text-slate-900">
-              Recent Activity
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            {activity.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-12 text-center">
-                <div className="flex h-14 w-14 items-center justify-center rounded-full bg-slate-100 mb-4">
-                  <Clock className="h-7 w-7 text-slate-400" />
-                </div>
-                <p className="text-sm font-medium text-slate-900">
-                  No activity yet
-                </p>
-                <p className="mt-1 text-sm text-slate-500">
-                  Activity will appear here as you use the platform.
-                </p>
-              </div>
-            ) : (
-              <div className="space-y-4">
-                {activity.map((item) => (
-                  <div key={item.id} className="flex gap-3">
-                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-blue-50">
-                      <TrendingUp className="h-4 w-4 text-blue-600" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm text-slate-700 leading-snug">
-                        <span className="font-medium">
-                          {item.user
-                            ? `${item.user.firstName} ${item.user.lastName}`
-                            : "System"}
-                        </span>{" "}
-                        {formatAction(item.action, item.entityType)}
-                        {item.voyage && (
-                          <span className="font-medium">
-                            {" "}
-                            {item.voyage.reference}
-                          </span>
-                        )}
-                      </p>
-                      <p className="text-xs text-slate-400 mt-0.5">
-                        {timeAgo(item.createdAt)}
-                      </p>
-                    </div>
+            {glossary ? (
+              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 max-h-72 overflow-auto">
+                {glossary.map((item, i) => (
+                  <div key={i} className="rounded-lg border border-slate-100 bg-slate-50 p-3">
+                    <p className="text-sm font-semibold text-slate-900">{item.term_display ?? item.term}</p>
+                    {item.category && <span className="text-[10px] uppercase tracking-wider text-blue-500">{item.category}</span>}
+                    {item.definition && <p className="text-sm text-slate-600 mt-0.5">{item.definition}</p>}
                   </div>
                 ))}
               </div>
+            ) : (
+              <p className="text-sm text-slate-500 py-8 text-center">
+                Click &ldquo;Load Glossary&rdquo; to fetch maritime terminology from the Quint API.
+              </p>
             )}
           </CardContent>
         </Card>
@@ -403,28 +304,101 @@ export default function DashboardPage() {
   );
 }
 
-function formatAction(action: string, entityType: string): string {
-  const actionMap: Record<string, string> = {
-    create: "created",
-    update: "updated",
-    delete: "deleted",
-    status_change: "changed status of",
-    message_sent: "sent a message in",
-    term_extracted: "extracted terms from",
-    recap_generated: "generated a recap for",
-  };
+/* ── small presentational helpers ── */
 
-  const entityMap: Record<string, string> = {
-    voyage: "voyage",
-    message: "message",
-    conversation: "conversation",
-    term: "term",
-    recap: "recap",
-    contract: "contract",
-  };
+function StatusCard({ title, loading, ok, okLabel, failLabel, icon, bgColor }: {
+  title: string; loading: boolean; ok: boolean; okLabel: string; failLabel: string; icon: React.ReactNode; bgColor: string;
+}) {
+  return (
+    <Card className="border-slate-200">
+      <CardContent className="p-5">
+        <div className="flex items-center justify-between">
+          <div className="space-y-1">
+            <p className="text-xs font-medium text-slate-500">{title}</p>
+            {loading ? (
+              <Loader2 className="h-4 w-4 animate-spin text-slate-400" />
+            ) : ok ? (
+              <div className="flex items-center gap-1.5 text-emerald-600">
+                <CheckCircle2 className="h-4 w-4" />
+                <span className="text-sm font-semibold">{okLabel}</span>
+              </div>
+            ) : (
+              <div className="flex items-center gap-1.5 text-slate-400">
+                <XCircle className="h-4 w-4" />
+                <span className="text-sm font-semibold">{failLabel}</span>
+              </div>
+            )}
+          </div>
+          <div className={cn("flex h-10 w-10 items-center justify-center rounded-lg", bgColor)}>
+            {icon}
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
 
-  const actionText = actionMap[action] ?? action.replace(/_/g, " ");
-  const entityText = entityMap[entityType] ?? entityType;
+function MetricCard({ title, value, loading, icon }: {
+  title: string; value: string; loading: boolean; icon: React.ReactNode;
+}) {
+  return (
+    <Card className="border-slate-200">
+      <CardContent className="p-5">
+        <div className="flex items-center gap-3">
+          {icon}
+          <div>
+            <p className="text-xs font-medium text-slate-500">{title}</p>
+            {loading ? (
+              <Loader2 className="h-4 w-4 animate-spin text-slate-400 mt-0.5" />
+            ) : (
+              <p className="text-lg font-bold text-slate-900">{value}</p>
+            )}
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
 
-  return `${actionText} a ${entityText}`;
+function ToolCard({ title, icon, children }: {
+  title: string; icon: React.ReactNode; buttonColor?: string; children: React.ReactNode;
+}) {
+  return (
+    <Card className="border-slate-200">
+      <CardHeader className="pb-4">
+        <CardTitle className="flex items-center gap-2 text-lg font-semibold text-slate-900">
+          {icon}
+          {title}
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">{children}</CardContent>
+    </Card>
+  );
+}
+
+function ToolInput({ placeholder, value, onChange, onSubmit, loading, buttonIcon, color = "blue" }: {
+  placeholder: string; value: string; onChange: (v: string) => void; onSubmit: () => void; loading: boolean; buttonIcon?: React.ReactNode; color?: string;
+}) {
+  const btnClass = color === "violet"
+    ? "bg-violet-600 hover:bg-violet-700 text-white"
+    : color === "emerald"
+      ? "bg-emerald-600 hover:bg-emerald-700 text-white"
+      : "bg-blue-600 hover:bg-blue-700 text-white";
+  return (
+    <div className="flex gap-2">
+      <Input placeholder={placeholder} value={value} onChange={(e) => onChange(e.target.value)} onKeyDown={(e) => e.key === "Enter" && onSubmit()} className="flex-1" />
+      <Button onClick={onSubmit} disabled={loading || !value.trim()} className={btnClass}>
+        {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : buttonIcon ?? <Send className="h-4 w-4" />}
+      </Button>
+    </div>
+  );
+}
+
+function ResultPre({ data }: { data: Record<string, unknown> | null }) {
+  if (!data) return null;
+  return (
+    <pre className="rounded-lg bg-slate-50 border border-slate-200 p-4 text-sm text-slate-700 overflow-auto max-h-48 whitespace-pre-wrap">
+      {JSON.stringify(data, null, 2)}
+    </pre>
+  );
 }

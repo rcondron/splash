@@ -30,7 +30,7 @@ export class SplashWebSocketGateway
   implements OnGatewayConnection, OnGatewayDisconnect
 {
   @WebSocketServer()
-  server: Server;
+  server!: Server;
 
   private readonly logger = new Logger(SplashWebSocketGateway.name);
 
@@ -155,7 +155,7 @@ export class SplashWebSocketGateway
 
       return { event: 'messageSent', data: { messageId: message.id } };
     } catch (error) {
-      this.logger.error(`Failed to send message: ${error.message}`);
+      this.logger.error(`Failed to send message: ${error instanceof Error ? error.message : error}`);
       return { event: 'error', data: { message: 'Failed to send message' } };
     }
   }
@@ -170,6 +170,90 @@ export class SplashWebSocketGateway
     client.to(room).emit('userTyping', {
       userId: client.userId,
       conversationId: data.conversationId,
+      isTyping: data.isTyping,
+    });
+  }
+
+  // ────────── Chat (WhatsApp-style) ──────────
+
+  @SubscribeMessage('joinChat')
+  async handleJoinChat(
+    @ConnectedSocket() client: AuthenticatedSocket,
+    @MessageBody() data: { chatId: string },
+  ) {
+    const room = `chat:${data.chatId}`;
+    await client.join(room);
+    return { event: 'joinedChat', data: { chatId: data.chatId } };
+  }
+
+  @SubscribeMessage('leaveChat')
+  async handleLeaveChat(
+    @ConnectedSocket() client: AuthenticatedSocket,
+    @MessageBody() data: { chatId: string },
+  ) {
+    const room = `chat:${data.chatId}`;
+    await client.leave(room);
+    return { event: 'leftChat', data: { chatId: data.chatId } };
+  }
+
+  @SubscribeMessage('sendChatMessage')
+  async handleSendChatMessage(
+    @ConnectedSocket() client: AuthenticatedSocket,
+    @MessageBody() data: { chatId: string; body: string },
+  ) {
+    if (!client.userId) {
+      return { event: 'error', data: { message: 'Not authenticated' } };
+    }
+
+    try {
+      const message = await this.prisma.chatMessage.create({
+        data: {
+          chatId: data.chatId,
+          senderUserId: client.userId,
+          body: data.body,
+        },
+        include: {
+          sender: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              email: true,
+              avatarUrl: true,
+            },
+          },
+        },
+      });
+
+      await this.prisma.chat.update({
+        where: { id: data.chatId },
+        data: { updatedAt: new Date() },
+      });
+
+      const room = `chat:${data.chatId}`;
+      this.server.to(room).emit('newChatMessage', {
+        chatId: data.chatId,
+        message,
+      });
+
+      return { event: 'chatMessageSent', data: { messageId: message.id } };
+    } catch (error) {
+      this.logger.error(
+        `Failed to send chat message: ${error instanceof Error ? error.message : error}`,
+      );
+      return { event: 'error', data: { message: 'Failed to send chat message' } };
+    }
+  }
+
+  @SubscribeMessage('chatTyping')
+  async handleChatTyping(
+    @ConnectedSocket() client: AuthenticatedSocket,
+    @MessageBody() data: { chatId: string; isTyping: boolean },
+  ) {
+    const room = `chat:${data.chatId}`;
+    client.to(room).emit('chatUserTyping', {
+      userId: client.userId,
+      chatId: data.chatId,
       isTyping: data.isTyping,
     });
   }

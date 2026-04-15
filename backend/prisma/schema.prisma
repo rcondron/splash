@@ -154,6 +154,9 @@ model User {
   auditEvents           AuditEvent[]
   emailIntegrationAccounts EmailIntegrationAccount[]
   notifications         Notification[]
+  createdChats          Chat[]          @relation("ChatCreatedBy")
+  chatMemberships       ChatMember[]
+  chatMessages          ChatMessage[]
 
   @@index([companyId])
   @@index([email])
@@ -433,6 +436,90 @@ model ContractDraft {
 
   @@index([voyageId])
   @@map("contract_drafts")
+}
+
+// ──────────────── Chat (WhatsApp-style) ────────────────
+
+enum ChatType {
+  DIRECT
+  GROUP
+}
+
+model Chat {
+  id          String   @id @default(uuid()) @db.Uuid
+  companyId   String   @db.Uuid
+  chatType    ChatType
+  name        String?
+  avatarUrl   String?
+  createdById String   @db.Uuid
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  createdBy User          @relation("ChatCreatedBy", fields: [createdById], references: [id])
+  members   ChatMember[]
+  messages  ChatMessage[]
+
+  @@index([companyId])
+  @@index([createdAt])
+  @@map("chats")
+}
+
+model ChatMember {
+  id        String   @id @default(uuid()) @db.Uuid
+  chatId    String   @db.Uuid
+  userId    String   @db.Uuid
+  isAdmin   Boolean  @default(false)
+  joinedAt  DateTime @default(now())
+  leftAt    DateTime?
+  lastReadAt DateTime?
+
+  chat Chat @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id])
+
+  @@unique([chatId, userId])
+  @@index([chatId])
+  @@index([userId])
+  @@map("chat_members")
+}
+
+enum ChatAttachmentKind {
+  IMAGE
+  VIDEO
+  DOCUMENT
+}
+
+model ChatMessage {
+  id           String    @id @default(uuid()) @db.Uuid
+  chatId       String    @db.Uuid
+  senderUserId String    @db.Uuid
+  body         String    @db.Text
+  sentAt       DateTime  @default(now())
+  editedAt     DateTime?
+  deletedAt    DateTime?
+
+  chat         Chat                     @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  sender       User                     @relation(fields: [senderUserId], references: [id])
+  attachments  ChatMessageAttachment[]
+
+  @@index([chatId, sentAt])
+  @@index([senderUserId])
+  @@map("chat_messages")
+}
+
+model ChatMessageAttachment {
+  id               String             @id @default(uuid()) @db.Uuid
+  chatMessageId    String             @db.Uuid
+  kind             ChatAttachmentKind
+  originalFilename String
+  mimeType         String
+  fileSizeBytes    Int
+  storageKey       String
+  createdAt        DateTime           @default(now())
+
+  message ChatMessage @relation(fields: [chatMessageId], references: [id], onDelete: Cascade)
+
+  @@index([chatMessageId])
+  @@map("chat_message_attachments")
 }
 
 model Notification {

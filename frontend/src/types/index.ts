@@ -32,24 +32,28 @@ export enum ParticipantRole {
 }
 
 export enum ConversationType {
-  NEGOTIATION = "negotiation",
-  INTERNAL = "internal",
-  EXTERNAL = "external",
+  NEGOTIATION = "NEGOTIATION",
+  INTERNAL = "INTERNAL",
+  EXTERNAL = "EXTERNAL",
+  EMAIL_SYNC = "EMAIL_SYNC",
+  CALL_NOTES = "CALL_NOTES",
 }
 
 export enum MessageType {
-  TEXT = "text",
-  OFFER = "offer",
-  COUNTER_OFFER = "counter_offer",
-  ACCEPTANCE = "acceptance",
-  REJECTION = "rejection",
-  SYSTEM = "system",
+  USER_TEXT = "USER_TEXT",
+  SYSTEM = "SYSTEM",
+  AI_SUMMARY = "AI_SUMMARY",
+  EMAIL_IMPORT = "EMAIL_IMPORT",
+  CALL_NOTE = "CALL_NOTE",
+  FILE_NOTE = "FILE_NOTE",
 }
 
 export enum MessageSource {
-  PLATFORM = "platform",
-  EMAIL = "email",
-  API = "api",
+  APP = "APP",
+  EMAIL = "EMAIL",
+  IMPORTED = "IMPORTED",
+  SYSTEM = "SYSTEM",
+  AI = "AI",
 }
 
 export enum TermType {
@@ -171,14 +175,17 @@ export interface Conversation {
 export interface Message {
   id: string;
   conversationId: string;
-  senderId: string;
-  type: MessageType;
+  authorUserId: string | null;
+  messageType: MessageType;
   source: MessageSource;
-  content: string;
-  metadata: Record<string, unknown> | null;
-  sender?: User;
+  plainTextBody: string;
+  richTextBody?: string | null;
+  sentAt?: string;
+  editedAt?: string | null;
+  deletedAt?: string | null;
+  author?: User;
   conversation?: Conversation;
-  attachments?: FileAttachment[];
+  fileAttachments?: FileAttachment[];
   extractedTerms?: ExtractedTerm[];
   createdAt: string;
   updatedAt: string;
@@ -229,6 +236,7 @@ export interface Recap {
   id: string;
   voyageId: string;
   content: string;
+  version?: number;
   generatedBy: GeneratedBy;
   isApproved: boolean;
   approvedById: string | null;
@@ -281,6 +289,66 @@ export interface Notification {
   metadata: Record<string, unknown> | null;
   user?: User;
   createdAt: string;
+}
+
+// ──────── Chat (WhatsApp-style) ────────
+
+export type ChatType = "DIRECT" | "GROUP";
+
+export interface ChatMember {
+  id: string;
+  firstName: string;
+  lastName: string;
+  email: string;
+  avatarUrl: string | null;
+}
+
+export type ChatAttachmentKind = "IMAGE" | "VIDEO" | "DOCUMENT";
+
+export interface ChatMessageAttachment {
+  id: string;
+  kind: ChatAttachmentKind;
+  originalFilename: string;
+  mimeType: string;
+  fileSizeBytes: number;
+}
+
+export interface ChatLastMessage {
+  id: string;
+  body: string;
+  /** Server-computed line for the chat list (caption or media label). */
+  preview?: string;
+  deletedAt?: string | null;
+  attachments?: Pick<
+    ChatMessageAttachment,
+    "id" | "kind" | "originalFilename"
+  >[];
+  sentAt: string;
+  sender: ChatMember;
+}
+
+export interface Chat {
+  id: string;
+  chatType: ChatType;
+  name: string;
+  avatarUrl: string | null;
+  members: ChatMember[];
+  lastMessage: ChatLastMessage | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ChatMessage {
+  id: string;
+  chatId: string;
+  senderUserId: string;
+  body: string;
+  sentAt: string;
+  editedAt: string | null;
+  /** Set when sender removed the message for everyone (WhatsApp-style). */
+  deletedAt?: string | null;
+  sender: ChatMember;
+  attachments?: ChatMessageAttachment[];
 }
 
 export interface ImportedEmail {

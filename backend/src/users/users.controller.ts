@@ -6,11 +6,26 @@ import {
   Param,
   Body,
   UseGuards,
+  UseInterceptors,
+  UploadedFile,
+  Res,
+  BadRequestException,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { Response } from 'express';
 import { UsersService } from './users.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
-import { CurrentUser, JwtPayload } from '../common/decorators/current-user.decorator';
-import { IsEmail, IsEnum, IsNotEmpty, IsOptional, IsString } from 'class-validator';
+import {
+  CurrentUser,
+  JwtPayload,
+} from '../common/decorators/current-user.decorator';
+import {
+  IsEmail,
+  IsEnum,
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+} from 'class-validator';
 import { UserRole } from '@prisma/client';
 
 class InviteUserDto {
@@ -59,31 +74,61 @@ class UpdateUserDto {
 }
 
 @Controller('users')
-@UseGuards(JwtAuthGuard)
 export class UsersController {
   constructor(private usersService: UsersService) {}
 
+  /** Public: profile photos (unguessable filename). Must be registered before :id routes. */
+  @Get('avatar/:fileName')
+  getAvatar(
+    @Param('fileName') fileName: string,
+    @Res() res: Response,
+  ): void {
+    const decoded = decodeURIComponent(fileName);
+    this.usersService.streamAvatarFile(decoded, res);
+  }
+
   @Get()
+  @UseGuards(JwtAuthGuard)
   findAll(@CurrentUser() user: JwtPayload) {
     return this.usersService.findByCompany(user.companyId);
   }
 
+  @Post('me/avatar')
+  @UseGuards(JwtAuthGuard)
+  @UseInterceptors(
+    FileInterceptor('file', {
+      limits: { fileSize: 5 * 1024 * 1024 },
+    }),
+  )
+  uploadMyAvatar(
+    @CurrentUser() user: JwtPayload,
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    if (!file) {
+      throw new BadRequestException('Image file is required');
+    }
+    return this.usersService.uploadAvatar(user.sub, user.companyId, file);
+  }
+
+  @Post('invite')
+  @UseGuards(JwtAuthGuard)
+  invite(@Body() dto: InviteUserDto, @CurrentUser() user: JwtPayload) {
+    return this.usersService.invite(user.companyId, dto);
+  }
+
   @Get(':id')
+  @UseGuards(JwtAuthGuard)
   findOne(@Param('id') id: string, @CurrentUser() user: JwtPayload) {
     return this.usersService.findOne(id, user.companyId);
   }
 
   @Patch(':id')
+  @UseGuards(JwtAuthGuard)
   update(
     @Param('id') id: string,
     @Body() dto: UpdateUserDto,
     @CurrentUser() user: JwtPayload,
   ) {
     return this.usersService.update(id, user.companyId, dto);
-  }
-
-  @Post('invite')
-  invite(@Body() dto: InviteUserDto, @CurrentUser() user: JwtPayload) {
-    return this.usersService.invite(user.companyId, dto);
   }
 }

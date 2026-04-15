@@ -1,12 +1,10 @@
-version: "3.9"
-
 services:
   postgres:
     image: postgres:16-alpine
     container_name: splash-postgres
     restart: unless-stopped
     ports:
-      - "5432:5432"
+      - "5433:5432"
     environment:
       POSTGRES_DB: splash_dev
       POSTGRES_USER: splash
@@ -24,7 +22,7 @@ services:
     container_name: splash-redis
     restart: unless-stopped
     ports:
-      - "6379:6379"
+      - "6380:6379"
     volumes:
       - redis_data:/data
     healthcheck:
@@ -41,13 +39,13 @@ services:
     container_name: splash-backend
     restart: unless-stopped
     ports:
-      - "3001:3001"
+      - "3011:3011"
     environment:
       NODE_ENV: development
       DATABASE_URL: postgresql://splash:splash_dev_password@postgres:5432/splash_dev?schema=public
       REDIS_HOST: redis
       REDIS_PORT: 6379
-      PORT: 3001
+      PORT: 3011
     volumes:
       - ./backend:/app
       - /app/node_modules
@@ -66,11 +64,12 @@ services:
     container_name: splash-frontend
     restart: unless-stopped
     ports:
-      - "3000:3000"
+      - "3010:3010"
     environment:
       NODE_ENV: development
-      NEXT_PUBLIC_API_URL: http://localhost:3001
-      NEXT_PUBLIC_WS_URL: ws://localhost:3001
+      PORT: 3010
+      NEXT_PUBLIC_API_URL: http://localhost:3011
+      NEXT_PUBLIC_WS_URL: ws://localhost:3011
     volumes:
       - ./frontend:/app
       - /app/node_modules

@@ -14,11 +14,11 @@ export class SearchController {
   @Get()
   async search(
     @Query('q') q: string,
+    @CurrentUser() user: JwtPayload,
     @Query('type') type?: string,
     @Query('status') status?: string,
     @Query('dateFrom') dateFrom?: string,
     @Query('dateTo') dateTo?: string,
-    @CurrentUser() user?: JwtPayload,
   ) {
     return this.searchService.search(
       { q, type, status, dateFrom, dateTo },

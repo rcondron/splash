@@ -3,32 +3,85 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Anchor, Loader2 } from "lucide-react";
+import Image from "next/image";
+import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useAuthStore } from "@/store/auth";
-import { api } from "@/lib/api";
-import { User } from "@/types";
+import { matrixApi } from "@/lib/api";
+import {
+  SPOOF_AUTH_TOKEN,
+  SPOOF_LOGIN_PASSWORD,
+  SPOOF_LOGIN_USERNAME,
+} from "@/lib/spoof";
+import { User, UserRole, CompanyType } from "@/types";
 
-interface LoginResponse {
+const MATRIX_HOMESERVER = "100.25.66.46";
+
+interface MatrixLoginResponse {
   access_token: string;
-  user: User;
+  device_id: string;
+  user_id: string;
+  home_server: string;
+}
+
+interface MatrixWhoamiResponse {
+  user_id: string;
+  device_id?: string;
+}
+
+function matrixUserToSplashUser(
+  userId: string,
+  whoami: MatrixWhoamiResponse,
+): User {
+  const localpart = userId.replace(/^@/, "").split(":")[0];
+  const nameParts = localpart.split(/[._-]/);
+  const firstName =
+    nameParts[0]?.charAt(0).toUpperCase() + (nameParts[0]?.slice(1) ?? "");
+  const lastName = nameParts[1]
+    ? nameParts[1].charAt(0).toUpperCase() + nameParts[1].slice(1)
+    : "";
+
+  return {
+    id: whoami.user_id,
+    email: `${localpart}@${MATRIX_HOMESERVER}`,
+    firstName: firstName || localpart,
+    lastName,
+    role: UserRole.ADMIN,
+    avatarUrl: null,
+    phone: null,
+    isActive: true,
+    lastLoginAt: new Date().toISOString(),
+    companyId: "quint",
+    company: {
+      id: "quint",
+      name: "ONYX",
+      type: CompanyType.OPERATOR,
+      domain: null,
+      logoUrl: null,
+      address: null,
+      phone: null,
+      website: null,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    },
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
 }
 
 export default function LoginPage() {
   const router = useRouter();
   const login = useAuthStore((s) => s.login);
 
-  const [email, setEmail] = useState("");
+  const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
   const validate = () => {
-    if (!email.trim()) return "Email is required";
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return "Invalid email address";
+    if (!username.trim()) return "Username is required";
     if (!password) return "Password is required";
-    if (password.length < 6) return "Password must be at least 6 characters";
     return null;
   };
 
@@ -44,14 +97,79 @@ export default function LoginPage() {
 
     setLoading(true);
     try {
-      const res = await api.post<LoginResponse>("/auth/login", {
-        email,
-        password,
-      });
-      login(res.user, res.access_token);
+      /* Offline demo: no Matrix / Quint requests */
+      if (
+        username.trim().toLowerCase() === SPOOF_LOGIN_USERNAME &&
+        password === SPOOF_LOGIN_PASSWORD
+      ) {
+        const spoofUser: User = {
+          id: "@spoof:splash.local",
+          email: "spoof@splash.local",
+          firstName: "Demo",
+          lastName: "User",
+          role: UserRole.ADMIN,
+          avatarUrl: null,
+          phone: null,
+          isActive: true,
+          lastLoginAt: new Date().toISOString(),
+          companyId: "spoof",
+          company: {
+            id: "spoof",
+            name: "Offline demo",
+            type: CompanyType.OPERATOR,
+            domain: null,
+            logoUrl: null,
+            address: null,
+            phone: null,
+            website: null,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          },
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        };
+        login(spoofUser, SPOOF_AUTH_TOKEN, "@spoof:splash.local");
+        router.push("/dashboard");
+        return;
+      }
+
+      const matrixUser = username.includes(":")
+        ? username.startsWith("@")
+          ? username
+          : `@${username}`
+        : `@${username}:${MATRIX_HOMESERVER}`;
+
+      const res = await matrixApi.post<MatrixLoginResponse>(
+        "/client/v3/login",
+        {
+          type: "m.login.password",
+          identifier: {
+            type: "m.id.user",
+            user: matrixUser,
+          },
+          password,
+          initial_device_display_name: "SPLASH Web Client",
+        },
+      );
+
+      const whoami = await matrixApi.get<MatrixWhoamiResponse>(
+        "/client/r0/account/whoami",
+        {
+          headers: { Authorization: `Bearer ${res.access_token}` },
+        },
+      );
+
+      const user = matrixUserToSplashUser(res.user_id, whoami);
+      login(user, res.access_token, res.user_id);
       router.push("/dashboard");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Login failed. Please try again.");
+      const msg =
+        err instanceof Error ? err.message : "Login failed. Please try again.";
+      if (msg.includes("M_FORBIDDEN") || msg.includes("Invalid username")) {
+        setError("Invalid username or password.");
+      } else {
+        setError(msg);
+      }
     } finally {
       setLoading(false);
     }
@@ -63,9 +181,13 @@ export default function LoginPage() {
       <div className="hidden lg:flex lg:w-1/2 flex-col justify-between p-12 text-white">
         <div>
           <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-500">
-              <Anchor className="h-6 w-6 text-white" />
-            </div>
+            <Image
+              src="/logo.webp"
+              alt="SPLASH"
+              width={40}
+              height={40}
+              className="rounded-lg"
+            />
             <span className="text-2xl font-bold tracking-tight">SPLASH</span>
           </div>
         </div>
@@ -106,16 +228,22 @@ export default function LoginPage() {
         <div className="w-full max-w-md space-y-8">
           {/* Mobile logo */}
           <div className="flex items-center gap-3 lg:hidden">
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-500">
-              <Anchor className="h-6 w-6 text-white" />
-            </div>
-            <span className="text-2xl font-bold tracking-tight text-white">SPLASH</span>
+            <Image
+              src="/logo.webp"
+              alt="SPLASH"
+              width={40}
+              height={40}
+              className="rounded-lg"
+            />
+            <span className="text-2xl font-bold tracking-tight text-white">
+              SPLASH
+            </span>
           </div>
 
           <div>
             <h2 className="text-3xl font-bold text-white">Welcome back</h2>
             <p className="mt-2 text-blue-300">
-              Sign in to your account to continue
+              Sign in with your Quint account to continue
             </p>
           </div>
 
@@ -127,29 +255,39 @@ export default function LoginPage() {
             )}
 
             <div className="space-y-2">
-              <label htmlFor="email" className="text-sm font-medium text-blue-200">
-                Email Address
+              <label
+                htmlFor="username"
+                className="text-sm font-medium text-blue-200"
+              >
+                Username
               </label>
               <Input
-                id="email"
-                type="email"
-                placeholder="you@company.com"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                id="username"
+                type="text"
+                placeholder="e.g. johndoe"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
                 className="h-11 border-slate-700 bg-slate-800/50 text-white placeholder:text-slate-500 focus-visible:ring-blue-500"
                 disabled={loading}
               />
+              <p className="text-xs text-slate-500">
+                Your Matrix username (without @user:server).{" "}
+                <span className="text-amber-400/90">
+                  Dev offline login: username{" "}
+                  <code className="rounded bg-slate-800/80 px-1">spoof</code>{" "}
+                  / password{" "}
+                  <code className="rounded bg-slate-800/80 px-1">spoof</code>
+                </span>
+              </p>
             </div>
 
             <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <label htmlFor="password" className="text-sm font-medium text-blue-200">
-                  Password
-                </label>
-                <button type="button" className="text-xs text-blue-400 hover:text-blue-300">
-                  Forgot password?
-                </button>
-              </div>
+              <label
+                htmlFor="password"
+                className="text-sm font-medium text-blue-200"
+              >
+                Password
+              </label>
               <Input
                 id="password"
                 type="password"
@@ -183,7 +321,7 @@ export default function LoginPage() {
               href="/auth/register"
               className="font-medium text-blue-400 hover:text-blue-300 underline-offset-4 hover:underline"
             >
-              Create one
+              Request access
             </Link>
           </p>
         </div>

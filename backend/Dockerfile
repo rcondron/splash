@@ -14,7 +14,7 @@ FROM base AS development
 COPY --from=dependencies /app/node_modules ./node_modules
 COPY . .
 RUN npx prisma generate
-EXPOSE 3001
+EXPOSE 3011
 CMD ["npm", "run", "start:dev"]
 
 # ---- Build ----
@@ -38,5 +38,5 @@ COPY --from=build --chown=nestjs:nodejs /app/prisma ./prisma
 
 USER nestjs
 
-EXPOSE 3001
+EXPOSE 3011
 CMD ["node", "dist/main"]

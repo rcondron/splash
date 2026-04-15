@@ -73,12 +73,24 @@ const TYPE_CONFIG: Record<
     icon: Handshake,
     className: "bg-amber-50 text-amber-700",
   },
+  [ConversationType.EMAIL_SYNC]: {
+    label: "Email",
+    icon: Mail,
+    className: "bg-purple-50 text-purple-700",
+  },
+  [ConversationType.CALL_NOTES]: {
+    label: "Call Notes",
+    icon: MessageSquare,
+    className: "bg-green-50 text-green-700",
+  },
 };
 
 const SOURCE_ICON: Record<string, React.ElementType> = {
   [MessageSource.EMAIL]: Mail,
-  [MessageSource.API]: Bot,
-  [MessageSource.PLATFORM]: Monitor,
+  [MessageSource.AI]: Bot,
+  [MessageSource.APP]: Monitor,
+  [MessageSource.IMPORTED]: Mail,
+  [MessageSource.SYSTEM]: Monitor,
 };
 
 interface ConversationsTabProps {
@@ -116,13 +128,16 @@ export function ConversationsTab({ voyageId }: ConversationsTabProps) {
   }, [conversations, selectedId]);
 
   // Fetch messages for selected conversation
-  const { data: messages = [], isLoading: loadingMessages } = useQuery<
-    Message[]
-  >({
+  const { data: rawMessages, isLoading: loadingMessages } = useQuery({
     queryKey: ["conversations", selectedId, "messages"],
-    queryFn: () => api.get(`/conversations/${selectedId}/messages`),
+    queryFn: () => api.get<{ data: Message[]; meta: unknown } | Message[]>(`/conversations/${selectedId}/messages`),
     enabled: !!selectedId,
   });
+  const messages: Message[] = Array.isArray(rawMessages)
+    ? rawMessages
+    : Array.isArray(rawMessages?.data)
+      ? rawMessages.data
+      : [];
 
   // Auto-scroll
   useEffect(() => {
@@ -132,7 +147,7 @@ export function ConversationsTab({ voyageId }: ConversationsTabProps) {
   // Send message
   const sendMutation = useMutation({
     mutationFn: (content: string) =>
-      api.post<Message>(`/conversations/${selectedId}/messages`, { content }),
+      api.post<Message>(`/conversations/${selectedId}/messages`, { plainTextBody: content }),
     onSuccess: () => {
       queryClient.invalidateQueries({
         queryKey: ["conversations", selectedId, "messages"],
@@ -164,7 +179,7 @@ export function ConversationsTab({ voyageId }: ConversationsTabProps) {
   // Delete message
   const deleteMutation = useMutation({
     mutationFn: (messageId: string) =>
-      api.delete(`/conversations/${selectedId}/messages/${messageId}`),
+      api.delete(`/messages/${messageId}`),
     onSuccess: () => {
       queryClient.invalidateQueries({
         queryKey: ["conversations", selectedId, "messages"],
@@ -177,8 +192,8 @@ export function ConversationsTab({ voyageId }: ConversationsTabProps) {
   // Edit message
   const editMutation = useMutation({
     mutationFn: ({ messageId, content }: { messageId: string; content: string }) =>
-      api.patch(`/conversations/${selectedId}/messages/${messageId}`, {
-        content,
+      api.patch(`/messages/${messageId}`, {
+        plainTextBody: content,
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({
@@ -271,7 +286,7 @@ export function ConversationsTab({ voyageId }: ConversationsTabProps) {
           ) : (
             <div className="p-1.5 space-y-0.5">
               {conversations.map((convo) => {
-                const cfg = TYPE_CONFIG[convo.type];
+                const cfg = TYPE_CONFIG[convo.type] ?? { label: convo.type, icon: MessageSquare, className: "bg-slate-100 text-slate-700" };
                 const Icon = cfg.icon;
                 const isSelected = convo.id === selectedId;
                 return (
@@ -350,11 +365,11 @@ export function ConversationsTab({ voyageId }: ConversationsTabProps) {
               ) : (
                 <div className="space-y-4">
                   {messages.map((msg) => {
-                    const sender = msg.sender;
+                    const sender = msg.author;
                     const initials = sender
                       ? `${sender.firstName?.[0] ?? ""}${sender.lastName?.[0] ?? ""}`
                       : "?";
-                    const isOwn = user?.id === msg.senderId;
+                    const isOwn = user?.id === msg.authorUserId;
                     const SourceIcon =
                       SOURCE_ICON[msg.source] ?? Monitor;
 
@@ -395,7 +410,7 @@ export function ConversationsTab({ voyageId }: ConversationsTabProps) {
                                   <DropdownMenuItem
                                     onClick={() => {
                                       setEditingId(msg.id);
-                                      setEditText(msg.content);
+                                      setEditText(msg.plainTextBody ?? "");
                                     }}
                                   >
                                     <Pencil className="h-3.5 w-3.5 mr-2" />
@@ -446,7 +461,7 @@ export function ConversationsTab({ voyageId }: ConversationsTabProps) {
                             </div>
                           ) : (
                             <p className="text-sm mt-0.5 whitespace-pre-wrap text-foreground/90">
-                              {msg.content}
+                              {msg.plainTextBody}
                             </p>
                           )}
                         </div>
