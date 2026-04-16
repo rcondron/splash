@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
+import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/store/auth";
 import { quintApi } from "@/lib/api";
 import { isSpoofAuthToken } from "@/lib/spoof";
@@ -9,6 +10,8 @@ import { Sidebar } from "@/components/sidebar";
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
+  const pathname = usePathname();
+  const isChatPage = pathname === "/chat" || pathname.startsWith("/chat/");
   const { isAuthenticated, token } = useAuthStore();
   const [ready, setReady] = useState(false);
   const [authHydrated, setAuthHydrated] = useState(false);
@@ -68,7 +71,16 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     <div className="flex h-screen overflow-hidden bg-slate-50">
       <Sidebar unreadCount={unreadCount} />
       <div className="flex flex-1 flex-col overflow-hidden">
-        <main className="flex-1 overflow-auto p-6">{children}</main>
+        <main
+          className={cn(
+            "flex-1 min-h-0",
+            isChatPage
+              ? "flex flex-col overflow-hidden p-0"
+              : "overflow-auto p-6",
+          )}
+        >
+          {children}
+        </main>
       </div>
     </div>
   );

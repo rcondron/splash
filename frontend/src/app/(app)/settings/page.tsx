@@ -1,13 +1,14 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import {
-  User as UserIcon,
   MapPin,
   Globe,
   Loader2,
   Save,
   CheckCircle2,
+  ChevronRight,
 } from "lucide-react";
 import { useAuthStore } from "@/store/auth";
 import { quintApi } from "@/lib/api";
@@ -31,7 +32,7 @@ interface UserContext {
 }
 
 export default function SettingsPage() {
-  const { user, matrixUserId } = useAuthStore();
+  const { user } = useAuthStore();
 
   const [location, setLocation] = useState<UserLocation>({});
   const [context, setContext] = useState<UserContext>({});
@@ -98,26 +99,18 @@ export default function SettingsPage() {
         </p>
       </div>
 
-      {/* Profile card */}
-      <Card className="border-slate-200">
-        <CardHeader className="pb-4">
-          <CardTitle className="flex items-center gap-2 text-lg font-semibold text-slate-900">
-            <UserIcon className="h-5 w-5 text-blue-600" />
-            Profile
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
-            <Field label="First Name" value={user?.firstName} />
-            <Field label="Last Name" value={user?.lastName} />
-            <Field label="Email" value={user?.email} />
-            <Field label="Matrix User ID" value={matrixUserId} mono />
-          </div>
-          <p className="text-xs text-slate-400 pt-2 border-t border-slate-100">
-            Profile editing is managed by your Quint administrator.
+      <Link
+        href="/profile"
+        className="flex items-center justify-between rounded-xl border border-slate-200 bg-white px-5 py-4 text-left transition-colors hover:bg-slate-50"
+      >
+        <div>
+          <p className="text-sm font-semibold text-slate-900">Profile & photo</p>
+          <p className="text-xs text-slate-500">
+            {user?.firstName} {user?.lastName} · Manage avatar and account details
           </p>
-        </CardContent>
-      </Card>
+        </div>
+        <ChevronRight className="h-5 w-5 shrink-0 text-slate-400" />
+      </Link>
 
       {/* Location */}
       <Card className="border-slate-200">
@@ -268,27 +261,6 @@ export default function SettingsPage() {
           )}
         </CardContent>
       </Card>
-    </div>
-  );
-}
-
-function Field({
-  label,
-  value,
-  mono,
-}: {
-  label: string;
-  value?: string | null;
-  mono?: boolean;
-}) {
-  return (
-    <div>
-      <p className="text-xs font-medium text-slate-400 uppercase tracking-wider">
-        {label}
-      </p>
-      <p className={`text-sm text-slate-900 mt-1 ${mono ? "font-mono" : ""}`}>
-        {value ?? "—"}
-      </p>
     </div>
   );
 }

@@ -5,8 +5,10 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import Image from "next/image";
 import {
-  LayoutDashboard,
   MessageCircle,
+  Anchor,
+  FileText,
+  BarChart3,
   Settings,
   LogOut,
   ChevronLeft,
@@ -33,9 +35,10 @@ import {
 } from "@/components/ui/tooltip";
 
 const navItems = [
-  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/chat", label: "Chat", icon: MessageCircle },
-  { href: "/settings", label: "Settings", icon: Settings },
+  { href: "/chat", label: "Chats", icon: MessageCircle },
+  { href: "/fixtures", label: "Fixtures", icon: Anchor },
+  { href: "/documents", label: "Documents", icon: FileText },
+  { href: "/reports", label: "Reports", icon: BarChart3 },
 ];
 
 interface SidebarProps {
@@ -194,7 +197,7 @@ export function Sidebar({ unreadCount = 0 }: SidebarProps) {
                 </div>
               </DropdownMenuLabel>
               <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={() => router.push("/settings")}>
+              <DropdownMenuItem onClick={() => router.push("/profile")}>
                 <UserIcon className="mr-2 h-4 w-4" />
                 Profile
               </DropdownMenuItem>
