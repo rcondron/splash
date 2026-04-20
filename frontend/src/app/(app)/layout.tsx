@@ -4,8 +4,7 @@ import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/store/auth";
-import { quintApi } from "@/lib/api";
-import { isSpoofAuthToken } from "@/lib/spoof";
+import { getSocket } from "@/lib/socket";
 import { Sidebar } from "@/components/sidebar";
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
@@ -37,24 +36,27 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   }, [authHydrated, isAuthenticated, token, router]);
 
   useEffect(() => {
-    if (!ready || !token) return;
-    if (isSpoofAuthToken(token)) {
-      setUnreadCount(0);
-      return;
-    }
-    quintApi
-      .get<{ success: boolean; total: number }>("/v1/users/me/unread")
-      .then((res) => setUnreadCount(res.total ?? 0))
-      .catch(() => {});
+    if (!ready) return;
+    const storedToken = typeof window !== "undefined" ? localStorage.getItem("auth-token") : null;
+    if (!storedToken) return;
 
-    const interval = setInterval(() => {
-      quintApi
-        .get<{ success: boolean; total: number }>("/v1/users/me/unread")
-        .then((res) => setUnreadCount(res.total ?? 0))
-        .catch(() => {});
-    }, 15000);
-    return () => clearInterval(interval);
-  }, [ready, token]);
+    const sock = getSocket(storedToken);
+
+    const onInit = (data: { unread_count?: number }) => {
+      setUnreadCount(data.unread_count ?? 0);
+    };
+    const onUnread = (data: { total?: number }) => {
+      setUnreadCount(data.total ?? 0);
+    };
+
+    sock.on("init", onInit);
+    sock.on("unread_count", onUnread);
+
+    return () => {
+      sock.off("init", onInit);
+      sock.off("unread_count", onUnread);
+    };
+  }, [ready]);
 
   if (!authHydrated || !ready) {
     return (

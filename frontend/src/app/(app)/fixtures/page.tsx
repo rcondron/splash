@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   Anchor,
@@ -9,10 +9,11 @@ import {
   Filter,
   LayoutGrid,
   List,
-  ChevronRight,
   Ship,
   MapPin,
   Loader2,
+  Sparkles,
+  X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
@@ -23,6 +24,8 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { quintApi } from "@/lib/api";
+import { getSocket } from "@/lib/socket";
 
 type ViewMode = "table" | "kanban";
 
@@ -75,29 +78,45 @@ const STATUS_COLORS: Record<string, string> = {
   disputed: "bg-red-100 text-red-700",
 };
 
-interface LocalFixture {
+interface Fixture {
   id: string;
+  room_id: string;
   fixture_number: string;
   title: string;
-  vessel_name: string;
-  load_port: string;
-  discharge_port: string;
+  vessel_name: string | null;
+  cargo_description: string | null;
+  load_port: string | null;
+  discharge_port: string | null;
   deal_type: string;
   charter_type: string;
   stage: string;
   status: string;
-  cargo_description: string;
-  updated_at: string;
+  source_type: string;
+  confidence: number | null;
+  source_excerpt: string | null;
+  reasoning: string | null;
+  created_at: string | null;
+  updated_at: string | null;
 }
 
-let fixtureCounter = 0;
+interface ListFixturesResponse {
+  success: boolean;
+  fixtures?: Fixture[];
+}
+
+interface CreateFixtureResponse {
+  success: boolean;
+  fixture?: Fixture;
+}
 
 export default function FixturesPage() {
   const router = useRouter();
   const [viewMode, setViewMode] = useState<ViewMode>("table");
   const [searchQuery, setSearchQuery] = useState("");
   const [showCreate, setShowCreate] = useState(false);
-  const [fixtures, setFixtures] = useState<LocalFixture[]>([]);
+  const [fixtures, setFixtures] = useState<Fixture[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [listError, setListError] = useState<string | null>(null);
 
   const [form, setForm] = useState({
     title: "",
@@ -109,56 +128,101 @@ export default function FixturesPage() {
     discharge_port: "",
   });
   const [creating, setCreating] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
 
-  const handleCreate = () => {
+  const [recentAiId, setRecentAiId] = useState<string | null>(null);
+  const recentAiTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const refresh = useCallback(async () => {
+    setListError(null);
+    try {
+      const res = await quintApi.get<ListFixturesResponse>("/v1/fixtures");
+      setFixtures(res.fixtures ?? []);
+    } catch (e) {
+      setListError(e instanceof Error ? e.message : "Failed to load fixtures");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    setLoading(true);
+    void refresh();
+  }, [refresh]);
+
+  useEffect(() => {
+    let sock: ReturnType<typeof getSocket> | null = null;
+    try {
+      sock = getSocket();
+    } catch {
+      return;
+    }
+    const onFixtureCreated = (fx: Fixture) => {
+      setFixtures((prev) => {
+        if (prev.some((p) => p.id === fx.id)) return prev;
+        return [fx, ...prev];
+      });
+      setRecentAiId(fx.id);
+      if (recentAiTimer.current) clearTimeout(recentAiTimer.current);
+      recentAiTimer.current = setTimeout(() => setRecentAiId(null), 10000);
+    };
+    sock.on("fixture_created", onFixtureCreated);
+    return () => {
+      sock?.off("fixture_created", onFixtureCreated);
+      if (recentAiTimer.current) clearTimeout(recentAiTimer.current);
+    };
+  }, []);
+
+  const handleCreate = async () => {
     if (!form.title.trim()) return;
     setCreating(true);
-    fixtureCounter++;
-    const id = crypto.randomUUID();
-    const newFixture: LocalFixture = {
-      id,
-      fixture_number: `FIX-${String(fixtureCounter).padStart(4, "0")}`,
-      title: form.title.trim(),
-      vessel_name: form.vessel_name.trim(),
-      load_port: form.load_port.trim(),
-      discharge_port: form.discharge_port.trim(),
-      deal_type: form.deal_type,
-      charter_type: form.charter_type,
-      stage: "lead",
-      status: "draft",
-      cargo_description: form.cargo_description.trim(),
-      updated_at: new Date().toISOString(),
-    };
-    setFixtures((prev) => [newFixture, ...prev]);
-    setForm({
-      title: "",
-      deal_type: "voyage",
-      charter_type: "brokered",
-      vessel_name: "",
-      cargo_description: "",
-      load_port: "",
-      discharge_port: "",
-    });
-    setCreating(false);
-    setShowCreate(false);
-    router.push(`/fixtures/${id}`);
+    setCreateError(null);
+    try {
+      const res = await quintApi.post<CreateFixtureResponse>("/v1/fixtures", {
+        title: form.title.trim(),
+        deal_type: form.deal_type,
+        charter_type: form.charter_type,
+        vessel_name: form.vessel_name.trim() || null,
+        cargo_description: form.cargo_description.trim() || null,
+        load_port: form.load_port.trim() || null,
+        discharge_port: form.discharge_port.trim() || null,
+      });
+      const fx = res.fixture;
+      if (fx) {
+        setFixtures((prev) => [fx, ...prev.filter((p) => p.id !== fx.id)]);
+        setShowCreate(false);
+        setForm({
+          title: "",
+          deal_type: "voyage",
+          charter_type: "brokered",
+          vessel_name: "",
+          cargo_description: "",
+          load_port: "",
+          discharge_port: "",
+        });
+        router.push(`/fixtures/${fx.id}`);
+      }
+    } catch (e) {
+      setCreateError(e instanceof Error ? e.message : "Could not create fixture");
+    } finally {
+      setCreating(false);
+    }
   };
 
-  const filtered = searchQuery.trim()
-    ? fixtures.filter(
-        (f) =>
-          f.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          f.fixture_number.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          f.vessel_name.toLowerCase().includes(searchQuery.toLowerCase()),
-      )
-    : fixtures;
-
-  const stageCount = (stage: string) =>
-    fixtures.filter((f) => f.stage === stage).length;
+  const filtered = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return fixtures;
+    return fixtures.filter(
+      (f) =>
+        f.title.toLowerCase().includes(q) ||
+        f.fixture_number.toLowerCase().includes(q) ||
+        (f.vessel_name ?? "").toLowerCase().includes(q) ||
+        (f.cargo_description ?? "").toLowerCase().includes(q),
+    );
+  }, [fixtures, searchQuery]);
 
   return (
     <div className="space-y-6">
-      {/* Header */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Fixtures</h1>
@@ -167,7 +231,10 @@ export default function FixturesPage() {
           </p>
         </div>
         <button
-          onClick={() => setShowCreate(true)}
+          onClick={() => {
+            setCreateError(null);
+            setShowCreate(true);
+          }}
           className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-blue-700"
         >
           <Plus className="h-4 w-4" />
@@ -175,7 +242,12 @@ export default function FixturesPage() {
         </button>
       </div>
 
-      {/* Toolbar */}
+      {listError && (
+        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700">
+          {listError}
+        </div>
+      )}
+
       <div className="flex items-center gap-3">
         <div className="relative flex-1 max-w-md">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
@@ -217,7 +289,11 @@ export default function FixturesPage() {
         </div>
       </div>
 
-      {viewMode === "table" ? (
+      {loading ? (
+        <div className="flex items-center justify-center py-20">
+          <Loader2 className="h-5 w-5 animate-spin text-slate-400" />
+        </div>
+      ) : viewMode === "table" ? (
         <div className="rounded-xl border border-slate-200 bg-white">
           <div className="grid grid-cols-7 gap-4 border-b border-slate-100 px-6 py-3 text-xs font-semibold uppercase tracking-wider text-slate-400">
             <div className="col-span-2">Fixture</div>
@@ -238,7 +314,7 @@ export default function FixturesPage() {
               <p className="mt-1 text-xs text-slate-400">
                 {searchQuery
                   ? "Try a different search term"
-                  : "Create a fixture from a chat conversation or manually"}
+                  : "Start a negotiation in chat \u2014 the AI will open a draft fixture here automatically"}
               </p>
               {!searchQuery && (
                 <button
@@ -246,78 +322,101 @@ export default function FixturesPage() {
                   className="mt-4 inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
                 >
                   <Plus className="h-4 w-4" />
-                  Create your first fixture
+                  Create manually
                 </button>
               )}
             </div>
           ) : (
             <div className="divide-y divide-slate-100">
-              {filtered.map((fix) => (
-                <button
-                  key={fix.id}
-                  onClick={() => router.push(`/fixtures/${fix.id}`)}
-                  className="grid w-full grid-cols-7 gap-4 px-6 py-3.5 text-left text-sm transition-colors hover:bg-slate-50"
-                >
-                  <div className="col-span-2 min-w-0">
-                    <p className="font-medium text-slate-900 truncate">
-                      {fix.title}
-                    </p>
-                    <p className="text-xs text-slate-400">{fix.fixture_number}</p>
-                  </div>
-                  <div className="flex items-center gap-1.5 text-slate-600">
-                    {fix.vessel_name ? (
-                      <>
-                        <Ship className="h-3.5 w-3.5 text-slate-400" />
-                        <span className="truncate">{fix.vessel_name}</span>
-                      </>
-                    ) : (
-                      <span className="text-slate-400">—</span>
+              {filtered.map((fix) => {
+                const isRecent = recentAiId === fix.id;
+                const isAi = fix.source_type === "ai_extracted";
+                return (
+                  <button
+                    key={fix.id}
+                    onClick={() => router.push(`/fixtures/${fix.id}`)}
+                    className={cn(
+                      "grid w-full grid-cols-7 gap-4 px-6 py-3.5 text-left text-sm transition-colors hover:bg-slate-50",
+                      isRecent && "bg-blue-50/50",
                     )}
-                  </div>
-                  <div className="flex items-center text-slate-600 truncate">
-                    {fix.load_port || fix.discharge_port ? (
-                      <span className="truncate">
-                        {fix.load_port || "—"} → {fix.discharge_port || "—"}
+                  >
+                    <div className="col-span-2 min-w-0">
+                      <p className="flex items-center gap-2 font-medium text-slate-900">
+                        <span className="truncate">{fix.title}</span>
+                        {isAi && (
+                          <span className="inline-flex shrink-0 items-center gap-0.5 rounded-full bg-blue-100 px-1.5 py-0.5 text-[10px] font-semibold text-blue-700">
+                            <Sparkles className="h-2.5 w-2.5" /> AI
+                          </span>
+                        )}
+                      </p>
+                      <p className="text-xs text-slate-400">
+                        {fix.fixture_number}
+                        {typeof fix.confidence === "number" && (
+                          <span className="ml-2 text-slate-400">
+                            {Math.round(fix.confidence * 100)}% conf.
+                          </span>
+                        )}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-1.5 text-slate-600">
+                      {fix.vessel_name ? (
+                        <>
+                          <Ship className="h-3.5 w-3.5 text-slate-400" />
+                          <span className="truncate">{fix.vessel_name}</span>
+                        </>
+                      ) : (
+                        <span className="text-slate-400">{"\u2014"}</span>
+                      )}
+                    </div>
+                    <div className="flex items-center text-slate-600 truncate">
+                      {fix.load_port || fix.discharge_port ? (
+                        <span className="truncate">
+                          {fix.load_port || "\u2014"}
+                          {" \u2192 "}
+                          {fix.discharge_port || "\u2014"}
+                        </span>
+                      ) : (
+                        <span className="text-slate-400">{"\u2014"}</span>
+                      )}
+                    </div>
+                    <div>
+                      <span
+                        className={cn(
+                          "inline-block rounded-full px-2 py-0.5 text-[10px] font-medium",
+                          STAGE_COLORS[fix.stage] ?? "bg-slate-100 text-slate-600",
+                        )}
+                      >
+                        {STAGE_LABELS[fix.stage] ?? fix.stage}
                       </span>
-                    ) : (
-                      <span className="text-slate-400">—</span>
-                    )}
-                  </div>
-                  <div>
-                    <span
-                      className={cn(
-                        "inline-block rounded-full px-2 py-0.5 text-[10px] font-medium",
-                        STAGE_COLORS[fix.stage] ?? "bg-slate-100 text-slate-600",
-                      )}
-                    >
-                      {STAGE_LABELS[fix.stage] ?? fix.stage}
-                    </span>
-                  </div>
-                  <div>
-                    <span
-                      className={cn(
-                        "inline-block rounded-full px-2 py-0.5 text-[10px] font-medium capitalize",
-                        STATUS_COLORS[fix.status] ?? "bg-slate-100 text-slate-600",
-                      )}
-                    >
-                      {fix.status}
-                    </span>
-                  </div>
-                  <div className="text-right text-xs text-slate-400">
-                    {new Date(fix.updated_at).toLocaleDateString([], {
-                      month: "short",
-                      day: "numeric",
-                    })}
-                  </div>
-                </button>
-              ))}
+                    </div>
+                    <div>
+                      <span
+                        className={cn(
+                          "inline-block rounded-full px-2 py-0.5 text-[10px] font-medium capitalize",
+                          STATUS_COLORS[fix.status] ?? "bg-slate-100 text-slate-600",
+                        )}
+                      >
+                        {fix.status}
+                      </span>
+                    </div>
+                    <div className="text-right text-xs text-slate-400">
+                      {fix.updated_at
+                        ? new Date(fix.updated_at).toLocaleDateString([], {
+                            month: "short",
+                            day: "numeric",
+                          })
+                        : "\u2014"}
+                    </div>
+                  </button>
+                );
+              })}
             </div>
           )}
         </div>
       ) : (
         <div className="flex gap-4 overflow-x-auto pb-4">
           {STAGES.map((stage) => {
-            const stageFixtures = fixtures.filter((f) => f.stage === stage);
+            const stageFixtures = filtered.filter((f) => f.stage === stage);
             return (
               <div key={stage} className="w-64 shrink-0">
                 <div className="mb-3 flex items-center gap-2">
@@ -347,8 +446,11 @@ export default function FixturesPage() {
                         onClick={() => router.push(`/fixtures/${fix.id}`)}
                         className="w-full rounded-xl border border-slate-200 bg-white p-3 text-left transition-colors hover:border-slate-300"
                       >
-                        <p className="text-sm font-medium text-slate-900 truncate">
-                          {fix.title}
+                        <p className="flex items-center gap-2 text-sm font-medium text-slate-900">
+                          <span className="truncate">{fix.title}</span>
+                          {fix.source_type === "ai_extracted" && (
+                            <Sparkles className="h-3 w-3 text-blue-500" />
+                          )}
                         </p>
                         <p className="mt-0.5 text-[11px] text-slate-400">
                           {fix.fixture_number}
@@ -362,7 +464,9 @@ export default function FixturesPage() {
                         {(fix.load_port || fix.discharge_port) && (
                           <div className="mt-1 flex items-center gap-1 text-xs text-slate-500">
                             <MapPin className="h-3 w-3" />
-                            {fix.load_port || "—"} → {fix.discharge_port || "—"}
+                            {fix.load_port || "\u2014"}
+                            {" \u2192 "}
+                            {fix.discharge_port || "\u2014"}
                           </div>
                         )}
                       </button>
@@ -375,13 +479,18 @@ export default function FixturesPage() {
         </div>
       )}
 
-      {/* Create Fixture Dialog */}
       <Dialog open={showCreate} onOpenChange={setShowCreate}>
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
             <DialogTitle>New Fixture</DialogTitle>
           </DialogHeader>
           <div className="space-y-4 pt-2">
+            {createError && (
+              <div className="flex items-start gap-2 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+                <X className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                <span>{createError}</span>
+              </div>
+            )}
             <div className="space-y-1.5">
               <label className="text-xs font-medium text-slate-500">
                 Title <span className="text-red-400">*</span>
@@ -391,7 +500,7 @@ export default function FixturesPage() {
                 onChange={(e) =>
                   setForm((f) => ({ ...f, title: e.target.value }))
                 }
-                placeholder="e.g. MV Ocean Star — Santos to Rotterdam"
+                placeholder="e.g. MV Ocean Star \u2014 Santos to Rotterdam"
                 autoFocus
               />
             </div>

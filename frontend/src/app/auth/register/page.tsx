@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import Image from "next/image";
-import { ArrowLeft, Shield } from "lucide-react";
+import { ArrowLeft, Phone } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 export default function RegisterPage() {
@@ -11,16 +11,20 @@ export default function RegisterPage() {
       {/* Left branding panel */}
       <div className="hidden lg:flex lg:w-1/2 flex-col justify-between p-12 text-white">
         <div>
-          <div className="flex items-center gap-3">
+          <Link
+            href="/"
+            className="inline-flex items-center gap-3 rounded-lg outline-none transition-opacity hover:opacity-90 focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900"
+            aria-label="SPLASH home"
+          >
             <Image
               src="/logo.webp"
-              alt="SPLASH"
+              alt=""
               width={40}
               height={40}
               className="rounded-lg"
             />
             <span className="text-2xl font-bold tracking-tight">SPLASH</span>
-          </div>
+          </Link>
         </div>
 
         <div className="space-y-6">
@@ -30,15 +34,15 @@ export default function RegisterPage() {
             Your Fleet Today.
           </h1>
           <p className="text-lg text-blue-200 max-w-md">
-            Create your company account and invite your team. Get started with
-            AI-powered voyage management in minutes.
+            Create your account with just your phone number. Get started with
+            AI-powered voyage management in seconds.
           </p>
           <div className="space-y-3 pt-4">
             {[
+              "Instant sign-up with phone verification",
               "AI-powered term extraction from emails",
               "Real-time voyage negotiation tracking",
               "Automated recap and contract generation",
-              "Complete audit trail for compliance",
             ].map((item) => (
               <div key={item} className="flex items-center gap-3">
                 <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-blue-500/20 text-blue-300">
@@ -71,10 +75,14 @@ export default function RegisterPage() {
       <div className="flex w-full lg:w-1/2 items-center justify-center p-8">
         <div className="w-full max-w-md space-y-8">
           {/* Mobile logo */}
-          <div className="flex items-center gap-3 lg:hidden">
+          <Link
+            href="/"
+            className="flex items-center gap-3 lg:hidden rounded-lg outline-none transition-opacity hover:opacity-90 focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900"
+            aria-label="SPLASH home"
+          >
             <Image
               src="/logo.webp"
-              alt="SPLASH"
+              alt=""
               width={40}
               height={40}
               className="rounded-lg"
@@ -82,34 +90,35 @@ export default function RegisterPage() {
             <span className="text-2xl font-bold tracking-tight text-white">
               SPLASH
             </span>
-          </div>
+          </Link>
 
           <div className="flex flex-col items-center text-center space-y-6">
             <div className="flex h-16 w-16 items-center justify-center rounded-full bg-blue-600/20">
-              <Shield className="h-8 w-8 text-blue-400" />
+              <Phone className="h-8 w-8 text-blue-400" />
             </div>
 
             <div>
-              <h2 className="text-3xl font-bold text-white">Request Access</h2>
+              <h2 className="text-3xl font-bold text-white">Get Started</h2>
               <p className="mt-3 text-blue-300 leading-relaxed">
-                SPLASH accounts are provisioned by your organization&apos;s
-                administrator through the Quint platform. Contact your team lead
-                or ONYX admin to get your credentials.
+                Creating an account is simple &mdash; just enter your phone
+                number on the sign-in page and verify with a one-time code.
+                If you don&apos;t have an account yet, one will be created
+                automatically.
               </p>
             </div>
 
             <div className="w-full rounded-lg border border-slate-700 bg-slate-800/50 p-5 text-left space-y-3">
               <p className="text-sm font-medium text-white">
-                To get started, you&apos;ll need:
+                All you need is:
               </p>
               <ul className="space-y-2 text-sm text-slate-400">
                 <li className="flex items-start gap-2">
                   <span className="mt-0.5 h-1.5 w-1.5 shrink-0 rounded-full bg-blue-400" />
-                  A Matrix username and password from your admin
+                  A mobile phone number that can receive SMS
                 </li>
                 <li className="flex items-start gap-2">
                   <span className="mt-0.5 h-1.5 w-1.5 shrink-0 rounded-full bg-blue-400" />
-                  Network access to the Quint homeserver
+                  Network access to the SPLASH platform
                 </li>
               </ul>
             </div>
@@ -117,7 +126,7 @@ export default function RegisterPage() {
             <Link href="/auth/login" className="w-full">
               <Button className="h-11 w-full bg-blue-600 text-white hover:bg-blue-700">
                 <ArrowLeft className="mr-2 h-4 w-4" />
-                Back to Sign In
+                Sign in with Phone Number
               </Button>
             </Link>
           </div>

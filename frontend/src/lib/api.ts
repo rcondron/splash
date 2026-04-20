@@ -1,9 +1,4 @@
 import { clearAuthCookie, getAuthCookie } from "@/lib/auth-cookie";
-import {
-  getSpoofFormDataMock,
-  getSpoofMockResponse,
-  isSpoofAuthToken,
-} from "@/lib/spoof";
 
 function getStoredToken(): string | null {
   if (typeof window === "undefined") return null;
@@ -19,13 +14,6 @@ async function request<T>(
   options: RequestOptions = {},
 ): Promise<T> {
   const { body, headers: customHeaders, ...rest } = options;
-
-  if (typeof window !== "undefined" && isSpoofAuthToken(getStoredToken())) {
-    return getSpoofMockResponse<T>(endpoint, {
-      method: (rest as RequestInit).method || "GET",
-      body,
-    });
-  }
 
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
@@ -87,33 +75,52 @@ async function fetchWithAuth(
   return fetch(endpoint, { ...init, headers });
 }
 
-/** Quint API — routes under /api/v1/* on the remote server */
+/**
+ * Maps logical Quint paths to the Next.js rewrite target.
+ *
+ * - Most routes are implemented in Flask as `/api/v1/...`. The browser uses
+ *   `/quint-api/v1/...` which rewrites to `${QUINT_HOST}/api/v1/...` (nginx → Flask).
+ * - Verification, accounts, username-availability, and profile live at `/v1/...`
+ *   without the `/api` prefix. Those must use `/quint-v1/...` → `${QUINT_HOST}/v1/...`.
+ * - Other `/v1/*` routes use `/quint-api/v1/...` → `${QUINT_HOST}/api/v1/...`.
+ */
+function quintApiUrl(path: string): string {
+  const p = path.startsWith("/") ? path : `/${path}`;
+  if (
+    p.startsWith("/v1/verification/") ||
+    p.startsWith("/v1/username/") ||
+    p.startsWith("/v1/accounts/") ||
+    p.startsWith("/v1/profile/")
+  ) {
+    return `/quint-v1${p.slice("/v1".length)}`;
+  }
+  return `/quint-api${p}`;
+}
+
+/** Quint API — see quintApiUrl */
 export const quintApi = {
   get<T>(path: string, options?: RequestOptions): Promise<T> {
-    return request<T>(`/quint-api${path}`, { ...options, method: "GET" });
+    return request<T>(quintApiUrl(path), { ...options, method: "GET" });
   },
   post<T>(path: string, body?: unknown, options?: RequestOptions): Promise<T> {
-    return request<T>(`/quint-api${path}`, {
+    return request<T>(quintApiUrl(path), {
       ...options,
       method: "POST",
       body,
     });
   },
   put<T>(path: string, body?: unknown, options?: RequestOptions): Promise<T> {
-    return request<T>(`/quint-api${path}`, {
+    return request<T>(quintApiUrl(path), {
       ...options,
       method: "PUT",
       body,
     });
   },
   delete<T>(path: string, options?: RequestOptions): Promise<T> {
-    return request<T>(`/quint-api${path}`, { ...options, method: "DELETE" });
+    return request<T>(quintApiUrl(path), { ...options, method: "DELETE" });
   },
   async postFormData<T>(path: string, formData: FormData): Promise<T> {
-    if (typeof window !== "undefined" && isSpoofAuthToken(getStoredToken())) {
-      return getSpoofFormDataMock<T>();
-    }
-    const response = await fetchWithAuth(`/quint-api${path}`, {
+    const response = await fetchWithAuth(quintApiUrl(path), {
       method: "POST",
       body: formData,
     });
@@ -161,74 +168,5 @@ export const quintV2 = {
       method: "POST",
       body,
     });
-  },
-};
-
-/** Backwards-compat generic api object */
-export const api = {
-  get<T>(endpoint: string, options?: RequestOptions): Promise<T> {
-    return request<T>(endpoint, { ...options, method: "GET" });
-  },
-  post<T>(
-    endpoint: string,
-    body?: unknown,
-    options?: RequestOptions,
-  ): Promise<T> {
-    return request<T>(endpoint, { ...options, method: "POST", body });
-  },
-  put<T>(
-    endpoint: string,
-    body?: unknown,
-    options?: RequestOptions,
-  ): Promise<T> {
-    return request<T>(endpoint, { ...options, method: "PUT", body });
-  },
-  patch<T>(
-    endpoint: string,
-    body?: unknown,
-    options?: RequestOptions,
-  ): Promise<T> {
-    return request<T>(endpoint, { ...options, method: "PATCH", body });
-  },
-  delete<T>(endpoint: string, options?: RequestOptions): Promise<T> {
-    return request<T>(endpoint, { ...options, method: "DELETE" });
-  },
-  async postFormData<T>(endpoint: string, formData: FormData): Promise<T> {
-    const response = await fetchWithAuth(endpoint, {
-      method: "POST",
-      body: formData,
-    });
-    if (response.status === 401) {
-      if (typeof window !== "undefined") {
-        localStorage.removeItem("auth-token");
-        localStorage.removeItem("auth-storage");
-        clearAuthCookie();
-        window.location.href = "/auth/login";
-      }
-      throw new Error("Unauthorized");
-    }
-    if (!response.ok) {
-      const error = await response.json().catch(() => ({
-        message: response.statusText,
-      }));
-      throw new Error(error.message || "Request failed");
-    }
-    return response.json() as Promise<T>;
-  },
-  async getBlob(endpoint: string): Promise<Blob> {
-    const response = await fetchWithAuth(endpoint, { method: "GET" });
-    if (response.status === 401) {
-      if (typeof window !== "undefined") {
-        localStorage.removeItem("auth-token");
-        localStorage.removeItem("auth-storage");
-        clearAuthCookie();
-        window.location.href = "/auth/login";
-      }
-      throw new Error("Unauthorized");
-    }
-    if (!response.ok) {
-      throw new Error(response.statusText || "Request failed");
-    }
-    return response.blob();
   },
 };

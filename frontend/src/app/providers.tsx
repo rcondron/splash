@@ -24,16 +24,23 @@ export function Providers({ children }: { children: React.ReactNode }) {
       <Toaster
         position="top-right"
         toastOptions={{
-          duration: 4000,
+          duration: 3500,
           style: {
             background: "hsl(var(--card))",
             color: "hsl(var(--card-foreground))",
             border: "1px solid hsl(var(--border))",
           },
           success: {
+            duration: 2500,
+            style: {
+              background: "#10b981",
+              color: "#ffffff",
+              border: "1px solid #059669",
+              fontWeight: 500,
+            },
             iconTheme: {
-              primary: "hsl(var(--primary))",
-              secondary: "hsl(var(--primary-foreground))",
+              primary: "#ffffff",
+              secondary: "#10b981",
             },
           },
           error: {

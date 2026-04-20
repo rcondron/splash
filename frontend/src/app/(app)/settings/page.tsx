@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import toast from "react-hot-toast";
 import {
   MapPin,
   Globe,
@@ -15,6 +16,13 @@ import { quintApi } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 interface UserLocation {
   latitude?: number | null;
@@ -31,6 +39,208 @@ interface UserContext {
   currency?: string | null;
 }
 
+/** Radix Select cannot use empty string as value — use this sentinel for “not set”. */
+const SELECT_NONE = "__none__";
+
+function fromSelectValue(v: string): string {
+  return v === SELECT_NONE ? "" : v;
+}
+
+const LANGUAGE_OPTIONS: { value: string; label: string }[] = [
+  { value: "en", label: "English" },
+  { value: "en-GB", label: "English (UK)" },
+  { value: "es", label: "Spanish" },
+  { value: "fr", label: "French" },
+  { value: "de", label: "German" },
+  { value: "it", label: "Italian" },
+  { value: "pt", label: "Portuguese" },
+  { value: "pt-BR", label: "Portuguese (Brazil)" },
+  { value: "nl", label: "Dutch" },
+  { value: "sv", label: "Swedish" },
+  { value: "no", label: "Norwegian" },
+  { value: "da", label: "Danish" },
+  { value: "fi", label: "Finnish" },
+  { value: "pl", label: "Polish" },
+  { value: "ru", label: "Russian" },
+  { value: "uk", label: "Ukrainian" },
+  { value: "el", label: "Greek" },
+  { value: "tr", label: "Turkish" },
+  { value: "ar", label: "Arabic" },
+  { value: "he", label: "Hebrew" },
+  { value: "hi", label: "Hindi" },
+  { value: "ja", label: "Japanese" },
+  { value: "ko", label: "Korean" },
+  { value: "zh-CN", label: "Chinese (Simplified)" },
+  { value: "zh-TW", label: "Chinese (Traditional)" },
+];
+
+const MEASUREMENT_OPTIONS: { value: string; label: string }[] = [
+  { value: "metric", label: "Metric (km, °C, kg)" },
+  { value: "imperial", label: "Imperial (mi, °F, lb)" },
+];
+
+const CURRENCY_OPTIONS: { value: string; label: string }[] = [
+  { value: "USD", label: "USD — US dollar" },
+  { value: "EUR", label: "EUR — Euro" },
+  { value: "GBP", label: "GBP — British pound" },
+  { value: "JPY", label: "JPY — Japanese yen" },
+  { value: "CNY", label: "CNY — Chinese yuan" },
+  { value: "AUD", label: "AUD — Australian dollar" },
+  { value: "CAD", label: "CAD — Canadian dollar" },
+  { value: "CHF", label: "CHF — Swiss franc" },
+  { value: "HKD", label: "HKD — Hong Kong dollar" },
+  { value: "SGD", label: "SGD — Singapore dollar" },
+  { value: "INR", label: "INR — Indian rupee" },
+  { value: "KRW", label: "KRW — South Korean won" },
+  { value: "BRL", label: "BRL — Brazilian real" },
+  { value: "MXN", label: "MXN — Mexican peso" },
+  { value: "NOK", label: "NOK — Norwegian krone" },
+  { value: "SEK", label: "SEK — Swedish krona" },
+  { value: "DKK", label: "DKK — Danish krone" },
+  { value: "NZD", label: "NZD — New Zealand dollar" },
+  { value: "ZAR", label: "ZAR — South African rand" },
+  { value: "AED", label: "AED — UAE dirham" },
+];
+
+const FALLBACK_TIMEZONES = [
+  "UTC",
+  "America/New_York",
+  "America/Chicago",
+  "America/Denver",
+  "America/Los_Angeles",
+  "America/Anchorage",
+  "Pacific/Honolulu",
+  "America/Toronto",
+  "America/Mexico_City",
+  "America/Sao_Paulo",
+  "Europe/London",
+  "Europe/Paris",
+  "Europe/Berlin",
+  "Europe/Madrid",
+  "Europe/Rome",
+  "Europe/Amsterdam",
+  "Europe/Athens",
+  "Europe/Moscow",
+  "Asia/Dubai",
+  "Asia/Kolkata",
+  "Asia/Singapore",
+  "Asia/Hong_Kong",
+  "Asia/Shanghai",
+  "Asia/Tokyo",
+  "Asia/Seoul",
+  "Australia/Sydney",
+  "Pacific/Auckland",
+];
+
+function useTimezoneOptions(current?: string | null): string[] {
+  return useMemo(() => {
+    let list: string[] = [];
+    try {
+      if (typeof Intl !== "undefined" && "supportedValuesOf" in Intl) {
+        list = Intl.supportedValuesOf("timeZone");
+      }
+    } catch {
+      list = [];
+    }
+    if (!list.length) {
+      list = [...FALLBACK_TIMEZONES];
+    }
+    const tz = current?.trim();
+    if (tz && !list.includes(tz)) {
+      list = [tz, ...list];
+    }
+    return [...list].sort((a, b) => a.localeCompare(b));
+  }, [current]);
+}
+
+function PreferenceSelect({
+  label,
+  value,
+  onChange,
+  placeholder,
+  options,
+  allowUnset = true,
+}: {
+  label: string;
+  value: string | null | undefined;
+  onChange: (next: string) => void;
+  placeholder: string;
+  options: { value: string; label: string }[];
+  allowUnset?: boolean;
+}) {
+  const trimmed = (value ?? "").trim();
+  const inOptions = options.some((o) => o.value === trimmed);
+  const selectValue = trimmed === "" ? SELECT_NONE : trimmed;
+
+  return (
+    <div className="space-y-1.5">
+      <label className="text-xs font-medium text-slate-500">{label}</label>
+      <Select
+        value={selectValue}
+        onValueChange={(next) => onChange(fromSelectValue(next))}
+      >
+        <SelectTrigger className="border-slate-200 bg-white text-slate-900">
+          <SelectValue placeholder={placeholder} />
+        </SelectTrigger>
+        <SelectContent className="max-h-72">
+          {allowUnset && (
+            <SelectItem value={SELECT_NONE}>Not set</SelectItem>
+          )}
+          {trimmed && !inOptions && (
+            <SelectItem value={trimmed}>{trimmed} (current)</SelectItem>
+          )}
+          {options.map((o) => (
+            <SelectItem key={o.value} value={o.value}>
+              {o.label}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </div>
+  );
+}
+
+function TimezoneSelect({
+  label,
+  value,
+  onChange,
+  zones,
+}: {
+  label: string;
+  value: string | null | undefined;
+  onChange: (next: string) => void;
+  zones: string[];
+}) {
+  const trimmed = (value ?? "").trim();
+  const inList = trimmed === "" || zones.includes(trimmed);
+  const selectValue = trimmed === "" ? SELECT_NONE : trimmed;
+
+  return (
+    <div className="space-y-1.5">
+      <label className="text-xs font-medium text-slate-500">{label}</label>
+      <Select
+        value={inList ? selectValue : trimmed}
+        onValueChange={(next) => onChange(fromSelectValue(next))}
+      >
+        <SelectTrigger className="border-slate-200 bg-white text-slate-900">
+          <SelectValue placeholder="Select timezone" />
+        </SelectTrigger>
+        <SelectContent className="max-h-[min(24rem,70vh)]">
+          <SelectItem value={SELECT_NONE}>Not set</SelectItem>
+          {!inList && trimmed && (
+            <SelectItem value={trimmed}>{trimmed} (current)</SelectItem>
+          )}
+          {zones.map((z) => (
+            <SelectItem key={z} value={z}>
+              {z}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </div>
+  );
+}
+
 export default function SettingsPage() {
   const { user } = useAuthStore();
 
@@ -40,6 +250,8 @@ export default function SettingsPage() {
   const [ctxLoading, setCtxLoading] = useState(true);
   const [saving, setSaving] = useState<string | null>(null);
   const [saved, setSaved] = useState<string | null>(null);
+
+  const timezoneZones = useTimezoneOptions(context.timezone);
 
   useEffect(() => {
     quintApi
@@ -65,8 +277,11 @@ export default function SettingsPage() {
       });
       setSaved("location");
       setTimeout(() => setSaved(null), 2000);
-    } catch {
-      /* ignore */
+      toast.success("Location saved");
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : "Could not save location",
+      );
     } finally {
       setSaving(null);
     }
@@ -83,8 +298,11 @@ export default function SettingsPage() {
       });
       setSaved("context");
       setTimeout(() => setSaved(null), 2000);
-    } catch {
-      /* ignore */
+      toast.success("Preferences saved");
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : "Could not save preferences",
+      );
     } finally {
       setSaving(null);
     }
@@ -200,57 +418,42 @@ export default function SettingsPage() {
             <Loader2 className="h-5 w-5 animate-spin text-slate-400" />
           ) : (
             <>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-1.5">
-                  <label className="text-xs font-medium text-slate-500">
-                    Preferred Language
-                  </label>
-                  <Input
-                    value={context.preferred_language ?? ""}
-                    onChange={(e) =>
-                      setContext((c) => ({
-                        ...c,
-                        preferred_language: e.target.value,
-                      }))
-                    }
-                    placeholder="en"
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <label className="text-xs font-medium text-slate-500">Timezone</label>
-                  <Input
-                    value={context.timezone ?? ""}
-                    onChange={(e) =>
-                      setContext((c) => ({ ...c, timezone: e.target.value }))
-                    }
-                    placeholder="America/New_York"
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <label className="text-xs font-medium text-slate-500">
-                    Measurement System
-                  </label>
-                  <Input
-                    value={context.measurement_system ?? ""}
-                    onChange={(e) =>
-                      setContext((c) => ({
-                        ...c,
-                        measurement_system: e.target.value,
-                      }))
-                    }
-                    placeholder="metric"
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <label className="text-xs font-medium text-slate-500">Currency</label>
-                  <Input
-                    value={context.currency ?? ""}
-                    onChange={(e) =>
-                      setContext((c) => ({ ...c, currency: e.target.value }))
-                    }
-                    placeholder="USD"
-                  />
-                </div>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <PreferenceSelect
+                  label="Preferred language"
+                  placeholder="Select language"
+                  value={context.preferred_language}
+                  onChange={(preferred_language) =>
+                    setContext((c) => ({ ...c, preferred_language }))
+                  }
+                  options={LANGUAGE_OPTIONS}
+                />
+                <TimezoneSelect
+                  label="Timezone"
+                  value={context.timezone}
+                  onChange={(timezone) =>
+                    setContext((c) => ({ ...c, timezone }))
+                  }
+                  zones={timezoneZones}
+                />
+                <PreferenceSelect
+                  label="Measurement system"
+                  placeholder="Select units"
+                  value={context.measurement_system}
+                  onChange={(measurement_system) =>
+                    setContext((c) => ({ ...c, measurement_system }))
+                  }
+                  options={MEASUREMENT_OPTIONS}
+                />
+                <PreferenceSelect
+                  label="Currency"
+                  placeholder="Select currency"
+                  value={context.currency}
+                  onChange={(currency) =>
+                    setContext((c) => ({ ...c, currency }))
+                  }
+                  options={CURRENCY_OPTIONS}
+                />
               </div>
               <SaveBtn
                 onClick={saveContext}
