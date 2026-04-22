@@ -1,13 +1,14 @@
 "use client";
 
+import { useCallback, useEffect, useState } from "react";
 import {
   AlertTriangle,
-  CheckCircle2,
-  Clock,
   HelpCircle,
   Lightbulb,
+  Loader2,
   MessageSquare,
   PanelRightClose,
+  RefreshCw,
   Search,
   Sparkles,
   Target,
@@ -15,100 +16,33 @@ import {
   Zap,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { quintApi, sendMatrixRoomTextMessage } from "@/lib/api";
 
 interface DealCopilotRailProps {
   fixtureId: string;
   activeTab: string;
   onClose: () => void;
+  chatRoomId: string | null;
+  chatRoomError: string | null;
 }
 
-/* ── mock data (until backend wired) ── */
-
-interface InsightCard {
+interface Insight {
   id: string;
+  fixture_id: string;
   insight_type: string;
   severity: "low" | "medium" | "high" | "critical";
   title: string;
   description: string;
-  why_it_matters?: string;
-  recommended_action?: string;
-  suggested_chat_message?: string;
-  related_term_key?: string;
-  confidence?: number;
-  status: "open" | "acknowledged" | "dismissed" | "resolved" | "escalated";
+  why_it_matters?: string | null;
+  recommended_action?: string | null;
+  suggested_chat_message?: string | null;
+  related_term_key?: string | null;
+  confidence?: number | null;
+  source_excerpt?: string | null;
+  status: string;
+  model?: string | null;
+  created_at?: string | null;
 }
-
-const MOCK_GAPS: InsightCard[] = [
-  {
-    id: "g1",
-    insight_type: "missing_term",
-    severity: "high",
-    title: "Laycan not confirmed",
-    description: "No explicit final laycan range found in the recent negotiation thread.",
-    why_it_matters: "Without a confirmed laycan, the recap cannot be circulated and cancellation rights are undefined.",
-    recommended_action: "Ask counterparty to confirm firm laycan dates.",
-    suggested_chat_message: "Could you please confirm the firm laycan dates for this fixture?",
-    related_term_key: "laycan_start",
-    confidence: 0.92,
-    status: "open",
-  },
-  {
-    id: "g2",
-    insight_type: "missing_term",
-    severity: "medium",
-    title: "Demurrage rate not agreed",
-    description: "No demurrage/dispatch terms found in conversation or fixture terms.",
-    why_it_matters: "Missing demurrage terms are a common source of post-fixture disputes.",
-    recommended_action: "Raise demurrage and dispatch terms in the next round.",
-    related_term_key: "demurrage_rate",
-    confidence: 0.85,
-    status: "open",
-  },
-];
-
-const MOCK_AMBIGUITIES: InsightCard[] = [
-  {
-    id: "a1",
-    insight_type: "ambiguous_term",
-    severity: "medium",
-    title: "Cargo quantity unclear",
-    description: "Quantity mentioned as both 10,000 and 12,500 MT in different messages.",
-    why_it_matters: "Ambiguous quantity could lead to freight and demurrage disagreements.",
-    recommended_action: "Confirm final cargo quantity with charterer.",
-    suggested_chat_message: "Just to confirm — are we working on 10,000 MT or 12,500 MT for this cargo?",
-    related_term_key: "cargo_quantity",
-    confidence: 0.78,
-    status: "open",
-  },
-];
-
-const MOCK_INCONSISTENCIES: InsightCard[] = [
-  {
-    id: "i1",
-    insight_type: "inconsistent_term",
-    severity: "high",
-    title: "Arbitration clause conflict",
-    description: "Confirmed terms show London arbitration, but CP draft references New York.",
-    why_it_matters: "Mismatched arbitration clauses may cause legal complications if dispute arises.",
-    recommended_action: "Align CP arbitration clause with confirmed terms.",
-    related_term_key: "arbitration_place",
-    confidence: 0.95,
-    status: "open",
-  },
-];
-
-const MOCK_ACTIONS: InsightCard[] = [
-  {
-    id: "na1",
-    insight_type: "followup_suggestion",
-    severity: "low",
-    title: "Run recap regeneration",
-    description: "3 terms were updated since the last recap was generated.",
-    recommended_action: "Regenerate recap to reflect latest agreed terms.",
-    confidence: 0.99,
-    status: "open",
-  },
-];
 
 const SEVERITY_STYLES: Record<string, { bg: string; text: string; dot: string }> = {
   critical: { bg: "bg-red-50", text: "text-red-700", dot: "bg-red-500" },
@@ -117,47 +51,160 @@ const SEVERITY_STYLES: Record<string, { bg: string; text: string; dot: string }>
   low: { bg: "bg-slate-50", text: "text-slate-600", dot: "bg-slate-400" },
 };
 
-const SECTION_META = [
+type SectionKey = "gaps" | "ambiguities" | "inconsistencies" | "actions";
+
+const SECTION_META: {
+  key: SectionKey;
+  label: string;
+  icon: typeof Target;
+  types: string[];
+  color: string;
+}[] = [
   {
     key: "gaps",
     label: "Gaps to Close",
     icon: Target,
-    items: MOCK_GAPS,
+    types: ["missing_term", "low_confidence_extraction"],
     color: "text-orange-600",
   },
   {
     key: "ambiguities",
     label: "Ambiguities",
     icon: HelpCircle,
-    items: MOCK_AMBIGUITIES,
+    types: ["ambiguous_term"],
     color: "text-amber-600",
   },
   {
     key: "inconsistencies",
     label: "Inconsistencies",
     icon: AlertTriangle,
-    items: MOCK_INCONSISTENCIES,
+    types: ["inconsistent_term", "document_mismatch", "commercial_risk"],
     color: "text-red-600",
   },
   {
     key: "actions",
     label: "Suggested Next Actions",
     icon: Lightbulb,
-    items: MOCK_ACTIONS,
+    types: ["followup_suggestion"],
     color: "text-blue-600",
   },
-] as const;
+];
+
+function bucketInsights(insights: Insight[]): Record<SectionKey, Insight[]> {
+  const buckets: Record<SectionKey, Insight[]> = {
+    gaps: [],
+    ambiguities: [],
+    inconsistencies: [],
+    actions: [],
+  };
+  for (const insight of insights) {
+    const section = SECTION_META.find((s) => s.types.includes(insight.insight_type));
+    if (section) {
+      buckets[section.key].push(insight);
+    } else {
+      buckets.actions.push(insight);
+    }
+  }
+  return buckets;
+}
 
 export function DealCopilotRail({
   fixtureId,
   activeTab,
   onClose,
+  chatRoomId,
+  chatRoomError,
 }: DealCopilotRailProps) {
-  const totalOpen =
-    MOCK_GAPS.length +
-    MOCK_AMBIGUITIES.length +
-    MOCK_INCONSISTENCIES.length +
-    MOCK_ACTIONS.length;
+  const [insights, setInsights] = useState<Insight[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [reanalyzing, setReanalyzing] = useState(false);
+  const [lastRunAt, setLastRunAt] = useState<string | null>(null);
+
+  const fetchInsights = useCallback(async () => {
+    try {
+      setLoadError(null);
+      const res = await quintApi.get<{ insights: Insight[] }>(
+        `/v1/fixtures/${fixtureId}/insights`,
+      );
+      setInsights(res.insights ?? []);
+      setLastRunAt(new Date().toLocaleTimeString());
+    } catch (e) {
+      setLoadError(e instanceof Error ? e.message : "Failed to load insights");
+    }
+  }, [fixtureId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setInsights([]);
+    setLoadError(null);
+
+    void (async () => {
+      try {
+        const res = await quintApi.get<{ insights: Insight[] }>(
+          `/v1/fixtures/${fixtureId}/insights`,
+        );
+        if (cancelled) return;
+
+        const ins = res.insights ?? [];
+
+        if (ins.length > 0) {
+          setInsights(ins);
+          setLastRunAt(new Date().toLocaleTimeString());
+          setLoading(false);
+          return;
+        }
+
+        // No insights yet — auto-generate (keep loading spinner active)
+        try {
+          const gen = await quintApi.post<{ insights: Insight[] }>(
+            `/v1/fixtures/${fixtureId}/insights/generate`,
+          );
+          if (!cancelled) {
+            setInsights(gen.insights ?? []);
+            setLastRunAt(new Date().toLocaleTimeString());
+          }
+        } catch {
+          // generation can fail if chat has too few messages — that's OK
+        }
+      } catch (e) {
+        if (!cancelled) {
+          setLoadError(e instanceof Error ? e.message : "Failed to load");
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [fixtureId]);
+
+  const handleReanalyze = async () => {
+    setReanalyzing(true);
+    setLoadError(null);
+    try {
+      const res = await quintApi.post<{ insights: Insight[] }>(
+        `/v1/fixtures/${fixtureId}/insights/reanalyze`,
+      );
+      setInsights(res.insights ?? []);
+      setLastRunAt(new Date().toLocaleTimeString());
+    } catch (e) {
+      setLoadError(e instanceof Error ? e.message : "Reanalyze failed");
+    } finally {
+      setReanalyzing(false);
+    }
+  };
+
+  const handleDismiss = (insightId: string) => {
+    setInsights((prev) => prev.filter((i) => i.id !== insightId));
+    void quintApi.post(`/v1/insights/${insightId}/dismiss`).catch(() => {
+      fetchInsights();
+    });
+  };
+
+  const buckets = bucketInsights(insights);
+  const totalOpen = insights.length;
 
   return (
     <div className="flex w-80 shrink-0 flex-col rounded-xl border border-slate-200 bg-white">
@@ -169,81 +216,167 @@ export function DealCopilotRail({
             Deal Copilot
           </span>
         </div>
-        <button
-          onClick={onClose}
-          className="rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
-        >
-          <PanelRightClose className="h-4 w-4" />
-        </button>
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            onClick={() => void handleReanalyze()}
+            disabled={reanalyzing || loading}
+            title="Reanalyze deal"
+            className="rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-blue-600 disabled:opacity-40"
+          >
+            <RefreshCw className={cn("h-4 w-4", reanalyzing && "animate-spin")} />
+          </button>
+          <button
+            onClick={onClose}
+            className="rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+          >
+            <PanelRightClose className="h-4 w-4" />
+          </button>
+        </div>
       </div>
+      {chatRoomError && (
+        <p className="border-b border-amber-100 bg-amber-50 px-4 py-2 text-[11px] text-amber-800">
+          Chat unavailable: {chatRoomError}
+        </p>
+      )}
+      {loadError && (
+        <p className="border-b border-red-100 bg-red-50 px-4 py-2 text-[11px] text-red-800">
+          {loadError}
+        </p>
+      )}
 
-      {/* Scrollable body */}
-      <div className="flex-1 overflow-y-auto">
-        {SECTION_META.map((section) => {
-          const Icon = section.icon;
-          const count = section.items.filter((i) => i.status === "open").length;
-          return (
-            <div key={section.key} className="border-b border-slate-100 last:border-b-0">
-              <div className="flex items-center gap-2 px-4 py-2.5">
-                <Icon className={cn("h-4 w-4", section.color)} />
-                <span className="flex-1 text-xs font-semibold uppercase tracking-wider text-slate-500">
-                  {section.label}
-                </span>
-                {count > 0 && (
-                  <span className="flex h-5 min-w-[20px] items-center justify-center rounded-full bg-slate-100 px-1.5 text-[10px] font-bold text-slate-600">
-                    {count}
+      {/* Loading state */}
+      {(loading || reanalyzing) && insights.length === 0 ? (
+        <div className="flex flex-1 flex-col items-center justify-center gap-3 py-12">
+          <Loader2 className="h-6 w-6 animate-spin text-blue-500" />
+          <p className="text-xs text-slate-500">
+            {reanalyzing ? "Analyzing deal with AI…" : "Loading insights…"}
+          </p>
+        </div>
+      ) : (
+        /* Scrollable body */
+        <div className="flex-1 overflow-y-auto">
+          {reanalyzing && insights.length > 0 && (
+            <div className="flex items-center gap-2 border-b border-blue-100 bg-blue-50 px-4 py-2">
+              <Loader2 className="h-3 w-3 animate-spin text-blue-600" />
+              <span className="text-[11px] text-blue-700">Reanalyzing deal…</span>
+            </div>
+          )}
+
+          {SECTION_META.map((section) => {
+            const Icon = section.icon;
+            const items = buckets[section.key];
+            const count = items.length;
+            return (
+              <div key={section.key} className="border-b border-slate-100 last:border-b-0">
+                <div className="flex items-center gap-2 px-4 py-2.5">
+                  <Icon className={cn("h-4 w-4", section.color)} />
+                  <span className="flex-1 text-xs font-semibold uppercase tracking-wider text-slate-500">
+                    {section.label}
                   </span>
-                )}
+                  {count > 0 && (
+                    <span className="flex h-5 min-w-[20px] items-center justify-center rounded-full bg-slate-100 px-1.5 text-[10px] font-bold text-slate-600">
+                      {count}
+                    </span>
+                  )}
+                </div>
+                <div className="space-y-2 px-3 pb-3">
+                  {items.length === 0 ? (
+                    <p className="py-2 text-center text-xs text-slate-400">
+                      None detected
+                    </p>
+                  ) : (
+                    items.map((insight) => (
+                      <InsightCard
+                        key={insight.id}
+                        insight={insight}
+                        chatRoomId={chatRoomId}
+                        chatRoomError={chatRoomError}
+                        onDismiss={() => handleDismiss(insight.id)}
+                      />
+                    ))
+                  )}
+                </div>
               </div>
-              <div className="space-y-2 px-3 pb-3">
-                {section.items.length === 0 ? (
-                  <p className="py-2 text-center text-xs text-slate-400">
-                    None detected
-                  </p>
-                ) : (
-                  section.items.map((card) => (
-                    <CopilotCard key={card.id} card={card} />
-                  ))
-                )}
-              </div>
-            </div>
-          );
-        })}
+            );
+          })}
 
-        {/* AI Health */}
-        <div className="border-t border-slate-100 px-4 py-3">
-          <div className="flex items-center gap-2 mb-2">
-            <Zap className="h-4 w-4 text-emerald-600" />
-            <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">
-              AI Health
-            </span>
-          </div>
-          <div className="space-y-1.5 text-xs text-slate-600">
-            <div className="flex justify-between">
-              <span>Last AI run</span>
-              <span className="text-slate-400">2 min ago</span>
+          {/* AI Health */}
+          <div className="border-t border-slate-100 px-4 py-3">
+            <div className="flex items-center gap-2 mb-2">
+              <Zap className="h-4 w-4 text-emerald-600" />
+              <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+                AI Health
+              </span>
             </div>
-            <div className="flex justify-between">
-              <span>Unresolved items</span>
-              <span className="font-medium">{totalOpen}</span>
-            </div>
-            <div className="flex justify-between">
-              <span>Fixture confidence</span>
-              <span className="font-medium text-amber-600">Medium</span>
-            </div>
-            <div className="flex justify-between">
-              <span>Human review</span>
-              <span className="font-medium text-orange-600">Recommended</span>
+            <div className="space-y-1.5 text-xs text-slate-600">
+              <div className="flex justify-between">
+                <span>Last AI run</span>
+                <span className="text-slate-400">{lastRunAt ?? "—"}</span>
+              </div>
+              <div className="flex justify-between">
+                <span>Unresolved items</span>
+                <span className="font-medium">{totalOpen}</span>
+              </div>
             </div>
           </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }
 
-function CopilotCard({ card }: { card: InsightCard }) {
-  const sev = SEVERITY_STYLES[card.severity] ?? SEVERITY_STYLES.low;
+function InsightCard({
+  insight,
+  chatRoomId,
+  chatRoomError,
+  onDismiss,
+}: {
+  insight: Insight;
+  chatRoomId: string | null;
+  chatRoomError: string | null;
+  onDismiss: () => void;
+}) {
+  const sev = SEVERITY_STYLES[insight.severity] ?? SEVERITY_STYLES.low;
+  const [draftOpen, setDraftOpen] = useState(false);
+  const [draftText, setDraftText] = useState("");
+  const [sending, setSending] = useState(false);
+  const [sendError, setSendError] = useState<string | null>(null);
+  const [sourceOpen, setSourceOpen] = useState(false);
+
+  useEffect(() => {
+    if (draftOpen && insight.suggested_chat_message) {
+      setDraftText(insight.suggested_chat_message);
+    }
+  }, [draftOpen, insight.suggested_chat_message]);
+
+  const openDraft = () => {
+    setSendError(null);
+    setDraftOpen(true);
+    setDraftText(insight.suggested_chat_message ?? "");
+  };
+
+  const cancelDraft = () => {
+    setDraftOpen(false);
+    setSendError(null);
+  };
+
+  const sendDraft = async () => {
+    const body = draftText.trim();
+    if (!body || !chatRoomId) return;
+    setSending(true);
+    setSendError(null);
+    try {
+      await sendMatrixRoomTextMessage(chatRoomId, body);
+      setDraftOpen(false);
+    } catch (e) {
+      setSendError(e instanceof Error ? e.message : "Failed to send message");
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const canSend = !!chatRoomId && !chatRoomError && draftText.trim().length > 0;
 
   return (
     <div
@@ -256,43 +389,105 @@ function CopilotCard({ card }: { card: InsightCard }) {
         <div className={cn("mt-0.5 h-2 w-2 shrink-0 rounded-full", sev.dot)} />
         <div className="min-w-0 flex-1">
           <p className={cn("text-sm font-medium leading-tight", sev.text)}>
-            {card.title}
+            {insight.title}
           </p>
           <p className="mt-1 text-xs text-slate-500 leading-relaxed">
-            {card.description}
+            {insight.description}
           </p>
-          {card.why_it_matters && (
+          {insight.why_it_matters && (
             <p className="mt-1.5 text-[11px] italic text-slate-400">
-              {card.why_it_matters}
+              {insight.why_it_matters}
             </p>
           )}
-          {card.related_term_key && (
+          {insight.related_term_key && (
             <span className="mt-1.5 inline-block rounded bg-white/80 px-1.5 py-0.5 text-[10px] font-medium text-slate-500 ring-1 ring-slate-200">
-              {card.related_term_key}
+              {insight.related_term_key}
             </span>
           )}
 
           {/* Actions */}
           <div className="mt-2 flex flex-wrap gap-1.5">
-            {card.suggested_chat_message && (
-              <button className="inline-flex items-center gap-1 rounded-md bg-blue-600 px-2 py-1 text-[10px] font-medium text-white hover:bg-blue-700">
+            {insight.suggested_chat_message && (
+              <button
+                type="button"
+                onClick={openDraft}
+                className="inline-flex items-center gap-1 rounded-md bg-blue-600 px-2 py-1 text-[10px] font-medium text-white hover:bg-blue-700"
+              >
                 <MessageSquare className="h-3 w-3" />
                 Draft message
               </button>
             )}
-            <button className="inline-flex items-center gap-1 rounded-md bg-white px-2 py-1 text-[10px] font-medium text-slate-500 ring-1 ring-slate-200 hover:bg-slate-50">
-              <Search className="h-3 w-3" />
-              View source
-            </button>
-            <button className="inline-flex items-center gap-1 rounded-md bg-white px-2 py-1 text-[10px] font-medium text-slate-400 ring-1 ring-slate-200 hover:bg-slate-50">
+            {insight.source_excerpt && (
+              <button
+                type="button"
+                onClick={() => setSourceOpen(!sourceOpen)}
+                className="inline-flex items-center gap-1 rounded-md bg-white px-2 py-1 text-[10px] font-medium text-slate-500 ring-1 ring-slate-200 hover:bg-slate-50"
+              >
+                <Search className="h-3 w-3" />
+                {sourceOpen ? "Hide source" : "View source"}
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={onDismiss}
+              className="inline-flex items-center gap-1 rounded-md bg-white px-2 py-1 text-[10px] font-medium text-slate-400 ring-1 ring-slate-200 hover:bg-slate-50"
+            >
               <X className="h-3 w-3" />
               Dismiss
             </button>
           </div>
+
+          {/* Source excerpt */}
+          {sourceOpen && insight.source_excerpt && (
+            <div className="mt-2 rounded-md border border-slate-200 bg-white p-2">
+              <p className="text-[11px] italic text-slate-600 leading-relaxed">
+                &ldquo;{insight.source_excerpt}&rdquo;
+              </p>
+            </div>
+          )}
+
+          {/* Draft message composer */}
+          {draftOpen && (
+            <div className="mt-3 space-y-2 rounded-lg border border-slate-200 bg-white p-2.5 shadow-sm">
+              <textarea
+                value={draftText}
+                onChange={(e) => setDraftText(e.target.value)}
+                rows={4}
+                disabled={sending}
+                placeholder="Message to send in chat…"
+                className="w-full resize-y rounded-md border border-slate-200 bg-slate-50 px-2 py-1.5 text-xs text-slate-800 placeholder:text-slate-400 outline-none focus:border-slate-300 focus:bg-white disabled:opacity-60"
+              />
+              {!chatRoomId && !chatRoomError && (
+                <p className="text-[10px] text-slate-400">Loading room…</p>
+              )}
+              {sendError && (
+                <p className="text-[10px] text-red-600">{sendError}</p>
+              )}
+              <div className="flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={cancelDraft}
+                  disabled={sending}
+                  className="rounded-md px-2.5 py-1 text-[10px] font-medium text-slate-600 ring-1 ring-slate-200 hover:bg-slate-50 disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void sendDraft()}
+                  disabled={sending || !canSend}
+                  className="inline-flex items-center gap-1 rounded-md bg-blue-600 px-2.5 py-1 text-[10px] font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+                >
+                  {sending ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
+                  Send
+                </button>
+              </div>
+            </div>
+          )}
         </div>
-        {card.confidence != null && (
+        {insight.confidence != null && (
           <span className="shrink-0 rounded-full bg-white/80 px-1.5 py-0.5 text-[10px] font-medium text-slate-400 ring-1 ring-slate-200">
-            {Math.round(card.confidence * 100)}%
+            {Math.round(insight.confidence * 100)}%
           </span>
         )}
       </div>

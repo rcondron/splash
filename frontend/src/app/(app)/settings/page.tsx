@@ -4,7 +4,6 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import toast from "react-hot-toast";
 import {
-  MapPin,
   Globe,
   Loader2,
   Save,
@@ -14,7 +13,6 @@ import {
 import { useAuthStore } from "@/store/auth";
 import { quintApi } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -23,14 +21,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-
-interface UserLocation {
-  latitude?: number | null;
-  longitude?: number | null;
-  city?: string | null;
-  country?: string | null;
-  location_updated_at?: string | null;
-}
 
 interface UserContext {
   preferred_language?: string | null;
@@ -244,9 +234,7 @@ function TimezoneSelect({
 export default function SettingsPage() {
   const { user } = useAuthStore();
 
-  const [location, setLocation] = useState<UserLocation>({});
   const [context, setContext] = useState<UserContext>({});
-  const [locLoading, setLocLoading] = useState(true);
   const [ctxLoading, setCtxLoading] = useState(true);
   const [saving, setSaving] = useState<string | null>(null);
   const [saved, setSaved] = useState<string | null>(null);
@@ -255,37 +243,11 @@ export default function SettingsPage() {
 
   useEffect(() => {
     quintApi
-      .get<{ success: boolean } & UserLocation>("/v1/users/location")
-      .then((res) => setLocation(res))
-      .catch(() => {})
-      .finally(() => setLocLoading(false));
-    quintApi
       .get<{ success: boolean } & UserContext>("/v1/user/context")
       .then((res) => setContext(res))
       .catch(() => {})
       .finally(() => setCtxLoading(false));
   }, []);
-
-  const saveLocation = async () => {
-    setSaving("location");
-    try {
-      await quintApi.put("/v1/users/location", {
-        latitude: location.latitude ?? 0,
-        longitude: location.longitude ?? 0,
-        city: location.city ?? "",
-        country: location.country ?? "",
-      });
-      setSaved("location");
-      setTimeout(() => setSaved(null), 2000);
-      toast.success("Location saved");
-    } catch (err) {
-      toast.error(
-        err instanceof Error ? err.message : "Could not save location",
-      );
-    } finally {
-      setSaving(null);
-    }
-  };
 
   const saveContext = async () => {
     setSaving("context");
@@ -313,7 +275,11 @@ export default function SettingsPage() {
       <div>
         <h1 className="text-2xl font-bold text-slate-900">Settings</h1>
         <p className="text-sm text-slate-500 mt-1">
-          Your account information and preferences.
+          Language, timezone, and display preferences. Profile and location are under{" "}
+          <Link href="/profile" className="font-medium text-blue-600 hover:underline">
+            Profile
+          </Link>
+          .
         </p>
       </div>
 
@@ -322,88 +288,13 @@ export default function SettingsPage() {
         className="flex items-center justify-between rounded-xl border border-slate-200 bg-white px-5 py-4 text-left transition-colors hover:bg-slate-50"
       >
         <div>
-          <p className="text-sm font-semibold text-slate-900">Profile & photo</p>
+          <p className="text-sm font-semibold text-slate-900">Profile</p>
           <p className="text-xs text-slate-500">
-            {user?.firstName} {user?.lastName} · Manage avatar and account details
+            {user?.firstName} {user?.lastName} · Photo, account, location, and company
           </p>
         </div>
         <ChevronRight className="h-5 w-5 shrink-0 text-slate-400" />
       </Link>
-
-      {/* Location */}
-      <Card className="border-slate-200">
-        <CardHeader className="pb-4">
-          <CardTitle className="flex items-center gap-2 text-lg font-semibold text-slate-900">
-            <MapPin className="h-5 w-5 text-emerald-600" />
-            Location
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {locLoading ? (
-            <Loader2 className="h-5 w-5 animate-spin text-slate-400" />
-          ) : (
-            <>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-1.5">
-                  <label className="text-xs font-medium text-slate-500">City</label>
-                  <Input
-                    value={location.city ?? ""}
-                    onChange={(e) =>
-                      setLocation((l) => ({ ...l, city: e.target.value }))
-                    }
-                    placeholder="e.g. London"
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <label className="text-xs font-medium text-slate-500">Country</label>
-                  <Input
-                    value={location.country ?? ""}
-                    onChange={(e) =>
-                      setLocation((l) => ({ ...l, country: e.target.value }))
-                    }
-                    placeholder="e.g. United Kingdom"
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <label className="text-xs font-medium text-slate-500">Latitude</label>
-                  <Input
-                    type="number"
-                    step="any"
-                    value={location.latitude ?? ""}
-                    onChange={(e) =>
-                      setLocation((l) => ({
-                        ...l,
-                        latitude: e.target.value ? Number(e.target.value) : null,
-                      }))
-                    }
-                    placeholder="51.5074"
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <label className="text-xs font-medium text-slate-500">Longitude</label>
-                  <Input
-                    type="number"
-                    step="any"
-                    value={location.longitude ?? ""}
-                    onChange={(e) =>
-                      setLocation((l) => ({
-                        ...l,
-                        longitude: e.target.value ? Number(e.target.value) : null,
-                      }))
-                    }
-                    placeholder="-0.1278"
-                  />
-                </div>
-              </div>
-              <SaveBtn
-                onClick={saveLocation}
-                saving={saving === "location"}
-                saved={saved === "location"}
-              />
-            </>
-          )}
-        </CardContent>
-      </Card>
 
       {/* Preferences / Context */}
       <Card className="border-slate-200">

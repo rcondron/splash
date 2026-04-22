@@ -40,7 +40,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { quintApi } from "@/lib/api";
+import { quintApi, sendMatrixRoomTextMessage } from "@/lib/api";
 import { useAuthStore } from "@/store/auth";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { cn } from "@/lib/utils";
@@ -73,6 +73,7 @@ interface MatrixEvent {
   type: string;
   sender: string;
   origin_server_ts: number;
+  deleted?: boolean;
   content: {
     body?: string;
     msgtype?: string;
@@ -108,6 +109,9 @@ interface PeerContactPayload {
   avatarUrl?: string | null;
   email: string;
   phone: string;
+  companyName?: string | null;
+  jobTitle?: string | null;
+  timezone?: string | null;
   location: {
     label?: string | null;
     city?: string | null;
@@ -534,6 +538,17 @@ export default function ChatPage() {
       });
     };
 
+    const onMessageDeleted = (data: { event_id: string; room_id: string; sender?: string }) => {
+      setMessages((prev) => {
+        const myId = matrixUserIdRef.current;
+        return prev.flatMap((m) => {
+          if (m.event_id !== data.event_id) return [m];
+          if (data.sender === myId || m.sender === myId) return [];
+          return [{ ...m, deleted: true, content: { ...m.content, body: "" } }];
+        });
+      });
+    };
+
     sock.on("init", onInit);
     sock.on("rooms_update", onRoomsUpdate);
     sock.on("new_message", onNewMessage);
@@ -543,6 +558,7 @@ export default function ChatPage() {
     sock.on("read", onRead);
     sock.on("room_deleted", onRoomDeleted);
     sock.on("fixture_created", onFixtureCreated);
+    sock.on("message_deleted", onMessageDeleted);
 
     // Request init in case we missed the event (layout connected before us)
     if (sock.connected) {
@@ -561,6 +577,7 @@ export default function ChatPage() {
       sock.off("read", onRead);
       sock.off("room_deleted", onRoomDeleted);
       sock.off("fixture_created", onFixtureCreated);
+      sock.off("message_deleted", onMessageDeleted);
       // Clear any lingering typing-expiry timers.
       Object.values(typingExpiryRef.current).forEach(clearTimeout);
       typingExpiryRef.current = {};
@@ -584,9 +601,15 @@ export default function ChatPage() {
         `/v1/messages/get?room_id=${encodeURIComponent(roomId)}&limit=50`,
       );
       const msgs = res.messages ?? res.chunk ?? [];
-      const textMsgs = msgs.filter(
-        (e) => e.type === "m.room.message" && e.content?.body,
-      );
+      const textMsgs = msgs
+        .filter((e) => e.type === "m.room.message")
+        .flatMap((e) => {
+          if (!e.content?.body) {
+            if (e.sender === matrixUserId) return [];
+            return [{ ...e, deleted: true, content: { ...e.content, body: "" } }];
+          }
+          return [e];
+        });
       textMsgs.sort((a, b) => a.origin_server_ts - b.origin_server_ts);
       const cutoff = getChatClearCutoff(matrixUserId, roomId);
       setMessages(filterMessagesAfterClear(textMsgs, cutoff));
@@ -606,7 +629,7 @@ export default function ChatPage() {
           txn_id: txnId,
         });
       } else {
-        await api_matrixSend(roomId, txnId, body);
+        await sendMatrixRoomTextMessage(roomId, body);
         await fetchMessages(roomId);
       }
     },
@@ -784,8 +807,10 @@ export default function ChatPage() {
         roomId: selectedRoom.room_id,
         eventId: confirmDeleteMessage.event_id,
       });
+      setMessages((prev) =>
+        prev.filter((m) => m.event_id !== confirmDeleteMessage.event_id),
+      );
       setConfirmDeleteMessage(null);
-      await fetchMessages(selectedRoom.room_id);
     } catch (e) {
       setMessageActionError(
         e instanceof Error ? e.message : "Could not delete message",
@@ -852,6 +877,12 @@ export default function ChatPage() {
   };
 
   const handleRoomCreated = (roomId: string, name: string) => {
+    const existing = rooms.find((r) => r.room_id === roomId);
+    if (existing) {
+      setSelectedRoom(existing);
+      setShowNewRoom(false);
+      return;
+    }
     const newRoom: WsRoom = {
       room_id: roomId,
       name,
@@ -1249,11 +1280,14 @@ export default function ChatPage() {
                         <div
                           className={cn(
                             "group/msg relative max-w-[65%] rounded-lg px-3 py-2 shadow-sm",
-                            isMe
-                              ? "bg-blue-500 text-white"
-                              : "bg-white text-slate-900",
+                            msg.deleted
+                              ? "border border-slate-200 bg-slate-50"
+                              : isMe
+                                ? "bg-blue-500 text-white"
+                                : "bg-white text-slate-900",
                           )}
                         >
+                          {!msg.deleted && (
                           <DropdownMenu
                             open={messageMenuEventId === msg.event_id}
                             onOpenChange={(open) =>
@@ -1308,7 +1342,8 @@ export default function ChatPage() {
                               )}
                             </DropdownMenuContent>
                           </DropdownMenu>
-                          {showSender && (
+                          )}
+                          {showSender && !msg.deleted && (
                             <p className="mb-0.5 text-xs font-semibold text-blue-500">
                               {resolveSenderLabel(
                                 msg.sender,
@@ -1317,12 +1352,20 @@ export default function ChatPage() {
                               )}
                             </p>
                           )}
+                          {msg.deleted ? (
+                            <div className="py-0.5 pr-12 pb-[15px]">
+                              <span className="text-[13px] italic text-slate-400">
+                                (Deleted)
+                              </span>
+                            </div>
+                          ) : (
                           <div className="text-[14px] leading-relaxed pr-12 pb-[15px]">
                             {renderChatMessageContent(
                               msg.content.body ?? "",
                               isMe,
                             )}
                           </div>
+                          )}
                           <span
                             className={cn(
                               "absolute bottom-1.5 right-2.5 flex items-center gap-1 text-[10px] leading-none",
@@ -1410,6 +1453,8 @@ export default function ChatPage() {
                 <span>
                   {typingUsers[selectedRoom.room_id]
                     .map(u => {
+                      const nameMap = memberNameMap[selectedRoom.room_id];
+                      if (nameMap?.[u]?.trim()) return nameMap[u].trim();
                       const local = u.replace(/^@/, "").split(":")[0];
                       return local.replace(/[._-]/g, " ").replace(/\b\w/g, c => c.toUpperCase());
                     })
@@ -1618,6 +1663,30 @@ export default function ChatPage() {
                         }
                       />
                       <InfoRow
+                        label="Company"
+                        value={
+                          peerContact.companyName?.trim()
+                            ? peerContact.companyName
+                            : "—"
+                        }
+                      />
+                      <InfoRow
+                        label="Job title"
+                        value={
+                          peerContact.jobTitle?.trim()
+                            ? peerContact.jobTitle
+                            : "—"
+                        }
+                      />
+                      <InfoRow
+                        label="Timezone"
+                        value={
+                          peerContact.timezone?.trim()
+                            ? peerContact.timezone
+                            : "—"
+                        }
+                      />
+                      <InfoRow
                         label="Location"
                         value={
                           peerContact.location?.label?.trim()
@@ -1821,22 +1890,3 @@ function FixtureDetectedBanner({
   );
 }
 
-async function api_matrixSend(roomId: string, txnId: string, body: string) {
-  const token =
-    typeof window !== "undefined"
-      ? localStorage.getItem("auth-token")
-      : null;
-  const res = await fetch(
-    `/_matrix/client/r0/rooms/${encodeURIComponent(roomId)}/send/m.room.message/${txnId}`,
-    {
-      method: "PUT",
-      headers: {
-        "Content-Type": "application/json",
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      },
-      body: JSON.stringify({ msgtype: "m.text", body }),
-    },
-  );
-  if (!res.ok) throw new Error("Failed to send message");
-  return res.json();
-}

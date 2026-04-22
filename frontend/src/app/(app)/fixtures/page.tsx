@@ -13,8 +13,10 @@ import {
   MapPin,
   Loader2,
   Sparkles,
+  LogOut,
   X,
 } from "lucide-react";
+import toast from "react-hot-toast";
 import { cn } from "@/lib/utils";
 import {
   Dialog,
@@ -209,6 +211,23 @@ export default function FixturesPage() {
     }
   };
 
+  const [confirmLeaveId, setConfirmLeaveId] = useState<string | null>(null);
+  const [leavingFixture, setLeavingFixture] = useState(false);
+
+  const handleLeaveFixture = async (fixtureId: string) => {
+    setLeavingFixture(true);
+    try {
+      await quintApi.delete(`/v1/fixtures/${fixtureId}`);
+      setFixtures((prev) => prev.filter((f) => f.id !== fixtureId));
+      toast.success("You left this fixture — it stays for other members.");
+    } catch (e) {
+      setListError(e instanceof Error ? e.message : "Failed to leave fixture");
+    } finally {
+      setLeavingFixture(false);
+      setConfirmLeaveId(null);
+    }
+  };
+
   const filtered = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
     if (!q) return fixtures;
@@ -295,13 +314,14 @@ export default function FixturesPage() {
         </div>
       ) : viewMode === "table" ? (
         <div className="rounded-xl border border-slate-200 bg-white">
-          <div className="grid grid-cols-7 gap-4 border-b border-slate-100 px-6 py-3 text-xs font-semibold uppercase tracking-wider text-slate-400">
+          <div className="grid grid-cols-8 gap-4 border-b border-slate-100 px-6 py-3 text-xs font-semibold uppercase tracking-wider text-slate-400">
             <div className="col-span-2">Fixture</div>
             <div>Vessel</div>
             <div>Route</div>
             <div>Stage</div>
             <div>Status</div>
             <div className="text-right">Updated</div>
+            <div></div>
           </div>
           {filtered.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-20 text-center">
@@ -332,15 +352,17 @@ export default function FixturesPage() {
                 const isRecent = recentAiId === fix.id;
                 const isAi = fix.source_type === "ai_extracted";
                 return (
-                  <button
+                  <div
                     key={fix.id}
-                    onClick={() => router.push(`/fixtures/${fix.id}`)}
                     className={cn(
-                      "grid w-full grid-cols-7 gap-4 px-6 py-3.5 text-left text-sm transition-colors hover:bg-slate-50",
+                      "grid w-full grid-cols-8 gap-4 px-6 py-3.5 text-left text-sm transition-colors hover:bg-slate-50",
                       isRecent && "bg-blue-50/50",
                     )}
                   >
-                    <div className="col-span-2 min-w-0">
+                    <button
+                      onClick={() => router.push(`/fixtures/${fix.id}`)}
+                      className="col-span-2 min-w-0 text-left"
+                    >
                       <p className="flex items-center gap-2 font-medium text-slate-900">
                         <span className="truncate">{fix.title}</span>
                         {isAi && (
@@ -357,8 +379,11 @@ export default function FixturesPage() {
                           </span>
                         )}
                       </p>
-                    </div>
-                    <div className="flex items-center gap-1.5 text-slate-600">
+                    </button>
+                    <button
+                      onClick={() => router.push(`/fixtures/${fix.id}`)}
+                      className="flex items-center gap-1.5 text-slate-600 text-left"
+                    >
                       {fix.vessel_name ? (
                         <>
                           <Ship className="h-3.5 w-3.5 text-slate-400" />
@@ -367,8 +392,11 @@ export default function FixturesPage() {
                       ) : (
                         <span className="text-slate-400">{"\u2014"}</span>
                       )}
-                    </div>
-                    <div className="flex items-center text-slate-600 truncate">
+                    </button>
+                    <button
+                      onClick={() => router.push(`/fixtures/${fix.id}`)}
+                      className="flex items-center text-slate-600 truncate text-left"
+                    >
                       {fix.load_port || fix.discharge_port ? (
                         <span className="truncate">
                           {fix.load_port || "\u2014"}
@@ -378,8 +406,8 @@ export default function FixturesPage() {
                       ) : (
                         <span className="text-slate-400">{"\u2014"}</span>
                       )}
-                    </div>
-                    <div>
+                    </button>
+                    <div className="flex items-center">
                       <span
                         className={cn(
                           "inline-block rounded-full px-2 py-0.5 text-[10px] font-medium",
@@ -389,7 +417,7 @@ export default function FixturesPage() {
                         {STAGE_LABELS[fix.stage] ?? fix.stage}
                       </span>
                     </div>
-                    <div>
+                    <div className="flex items-center">
                       <span
                         className={cn(
                           "inline-block rounded-full px-2 py-0.5 text-[10px] font-medium capitalize",
@@ -399,7 +427,7 @@ export default function FixturesPage() {
                         {fix.status}
                       </span>
                     </div>
-                    <div className="text-right text-xs text-slate-400">
+                    <div className="flex items-center justify-end text-xs text-slate-400">
                       {fix.updated_at
                         ? new Date(fix.updated_at).toLocaleDateString([], {
                             month: "short",
@@ -407,7 +435,20 @@ export default function FixturesPage() {
                           })
                         : "\u2014"}
                     </div>
-                  </button>
+                    <div className="flex items-center justify-end">
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setConfirmLeaveId(fix.id);
+                        }}
+                        title="Leave fixture — removes you only"
+                        className="rounded-md p-1 text-slate-300 transition-colors hover:bg-red-50 hover:text-red-500"
+                      >
+                        <LogOut className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  </div>
                 );
               })}
             </div>
@@ -478,6 +519,43 @@ export default function FixturesPage() {
           })}
         </div>
       )}
+
+      {/* Leave fixture — removes only your membership */}
+      <Dialog
+        open={!!confirmLeaveId}
+        onOpenChange={(open) => { if (!open) setConfirmLeaveId(null); }}
+      >
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Leave fixture</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-slate-600">
+            You will stop seeing this fixture in your list. Other members keep
+            access; the fixture and copilot data are not deleted for them.
+          </p>
+          <div className="flex justify-end gap-2 pt-2">
+            <Button
+              variant="outline"
+              onClick={() => setConfirmLeaveId(null)}
+              disabled={leavingFixture}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={() => confirmLeaveId && void handleLeaveFixture(confirmLeaveId)}
+              disabled={leavingFixture}
+              className="bg-red-600 text-white hover:bg-red-700"
+            >
+              {leavingFixture ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <LogOut className="mr-2 h-4 w-4" />
+              )}
+              Leave fixture
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={showCreate} onOpenChange={setShowCreate}>
         <DialogContent className="sm:max-w-lg">

@@ -155,7 +155,26 @@ export const matrixApi = {
       body,
     });
   },
+  put<T>(path: string, body?: unknown, options?: RequestOptions): Promise<T> {
+    return request<T>(`/_matrix${path}`, {
+      ...options,
+      method: "PUT",
+      body,
+    });
+  },
 };
+
+/** Send a plain-text m.room.message to a Matrix room (same path as chat composer fallback). */
+export async function sendMatrixRoomTextMessage(
+  roomId: string,
+  body: string,
+): Promise<void> {
+  const txnId = `m${Date.now()}`;
+  await matrixApi.put(
+    `/client/r0/rooms/${encodeURIComponent(roomId)}/send/m.room.message/${txnId}`,
+    { msgtype: "m.text", body },
+  );
+}
 
 /** Quint /v2/* routes (directory, contacts) */
 export const quintV2 = {
