@@ -35,15 +35,5 @@ npm-debug.log*
 # Testing
 coverage/
 
-# Prisma
-backend/prisma/*.db
-
-# Uploads
-backend/uploads/
-
-# Docker volumes
-postgres_data/
-redis_data/
-
 # Misc
 *.tsbuildinfo

@@ -1,14 +1,16 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
+import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/store/auth";
-import { quintApi } from "@/lib/api";
-import { isSpoofAuthToken } from "@/lib/spoof";
+import { getSocket } from "@/lib/socket";
 import { Sidebar } from "@/components/sidebar";
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
+  const pathname = usePathname();
+  const isChatPage = pathname === "/chat" || pathname.startsWith("/chat/");
   const { isAuthenticated, token } = useAuthStore();
   const [ready, setReady] = useState(false);
   const [authHydrated, setAuthHydrated] = useState(false);
@@ -34,24 +36,27 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   }, [authHydrated, isAuthenticated, token, router]);
 
   useEffect(() => {
-    if (!ready || !token) return;
-    if (isSpoofAuthToken(token)) {
-      setUnreadCount(0);
-      return;
-    }
-    quintApi
-      .get<{ success: boolean; total: number }>("/v1/users/me/unread")
-      .then((res) => setUnreadCount(res.total ?? 0))
-      .catch(() => {});
+    if (!ready) return;
+    const storedToken = typeof window !== "undefined" ? localStorage.getItem("auth-token") : null;
+    if (!storedToken) return;
 
-    const interval = setInterval(() => {
-      quintApi
-        .get<{ success: boolean; total: number }>("/v1/users/me/unread")
-        .then((res) => setUnreadCount(res.total ?? 0))
-        .catch(() => {});
-    }, 15000);
-    return () => clearInterval(interval);
-  }, [ready, token]);
+    const sock = getSocket(storedToken);
+
+    const onInit = (data: { unread_count?: number }) => {
+      setUnreadCount(data.unread_count ?? 0);
+    };
+    const onUnread = (data: { total?: number }) => {
+      setUnreadCount(data.total ?? 0);
+    };
+
+    sock.on("init", onInit);
+    sock.on("unread_count", onUnread);
+
+    return () => {
+      sock.off("init", onInit);
+      sock.off("unread_count", onUnread);
+    };
+  }, [ready]);
 
   if (!authHydrated || !ready) {
     return (
@@ -68,7 +73,16 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     <div className="flex h-screen overflow-hidden bg-slate-50">
       <Sidebar unreadCount={unreadCount} />
       <div className="flex flex-1 flex-col overflow-hidden">
-        <main className="flex-1 overflow-auto p-6">{children}</main>
+        <main
+          className={cn(
+            "flex-1 min-h-0",
+            isChatPage
+              ? "flex flex-col overflow-hidden p-0"
+              : "overflow-auto p-6",
+          )}
+        >
+          {children}
+        </main>
       </div>
     </div>
   );

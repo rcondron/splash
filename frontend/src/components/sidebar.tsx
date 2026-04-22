@@ -5,8 +5,10 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import Image from "next/image";
 import {
-  LayoutDashboard,
   MessageCircle,
+  Anchor,
+  FileText,
+  BarChart3,
   Settings,
   LogOut,
   ChevronLeft,
@@ -15,6 +17,10 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { getAvatarSrc } from "@/lib/avatar-url";
+import {
+  formatPhoneDisplay,
+  isPhoneDerivedLocalpart,
+} from "@/lib/format-phone";
 import { useAuthStore } from "@/store/auth";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
@@ -33,9 +39,10 @@ import {
 } from "@/components/ui/tooltip";
 
 const navItems = [
-  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/chat", label: "Chat", icon: MessageCircle },
-  { href: "/settings", label: "Settings", icon: Settings },
+  { href: "/chat", label: "Chats", icon: MessageCircle },
+  { href: "/fixtures", label: "Fixtures", icon: Anchor },
+  { href: "/documents", label: "Documents", icon: FileText },
+  { href: "/reports", label: "Reports", icon: BarChart3 },
 ];
 
 interface SidebarProps {
@@ -53,9 +60,20 @@ export function Sidebar({ unreadCount = 0 }: SidebarProps) {
     router.push("/auth/login");
   };
 
-  const initials = user
-    ? `${user.firstName?.[0] ?? ""}${user.lastName?.[0] ?? ""}`.toUpperCase()
-    : "?";
+  const phoneFormatted = formatPhoneDisplay(user?.phone);
+
+  const primaryName = (() => {
+    if (!user) return "";
+    const combined = `${user.firstName ?? ""} ${user.lastName ?? ""}`.trim();
+    if (combined && !isPhoneDerivedLocalpart(user.firstName)) {
+      return combined;
+    }
+    return phoneFormatted || combined || "Account";
+  })();
+
+  const secondaryLine =
+    user?.email?.trim() ||
+    (primaryName !== phoneFormatted ? phoneFormatted : "");
 
   return (
     <TooltipProvider delayDuration={0}>
@@ -161,40 +179,48 @@ export function Sidebar({ unreadCount = 0 }: SidebarProps) {
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <button
+                type="button"
+                title={
+                  collapsed
+                    ? [primaryName, secondaryLine].filter(Boolean).join(" · ")
+                    : undefined
+                }
                 className={cn(
                   "flex w-full items-center gap-3 rounded-lg p-2 text-sm transition-colors hover:bg-slate-800/60",
                   collapsed && "justify-center",
                 )}
               >
                 <Avatar className="h-8 w-8 shrink-0">
-                  <AvatarImage src={getAvatarSrc(user?.avatarUrl)} />
-                  <AvatarFallback className="bg-blue-600 text-xs text-white">
-                    {initials}
+                  <AvatarImage src={getAvatarSrc(user?.avatarUrl)} alt="" />
+                  <AvatarFallback className="bg-blue-600 text-white">
+                    <UserIcon className="h-4 w-4" aria-hidden />
                   </AvatarFallback>
                 </Avatar>
                 {!collapsed && (
-                  <div className="flex-1 text-left">
+                  <div className="flex-1 text-left min-w-0">
                     <div className="truncate font-medium text-white">
-                      {user?.firstName} {user?.lastName}
+                      {primaryName}
                     </div>
-                    <div className="truncate text-xs text-slate-500">
-                      {user?.email}
-                    </div>
+                    {secondaryLine ? (
+                      <div className="truncate text-xs text-slate-500">
+                        {secondaryLine}
+                      </div>
+                    ) : null}
                   </div>
                 )}
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent side="top" align="start" className="w-56">
               <DropdownMenuLabel>
-                <div className="truncate">
-                  {user?.firstName} {user?.lastName}
-                </div>
-                <div className="truncate text-xs font-normal text-muted-foreground">
-                  {user?.email}
-                </div>
+                <div className="truncate">{primaryName}</div>
+                {secondaryLine ? (
+                  <div className="truncate text-xs font-normal text-muted-foreground">
+                    {secondaryLine}
+                  </div>
+                ) : null}
               </DropdownMenuLabel>
               <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={() => router.push("/settings")}>
+              <DropdownMenuItem onClick={() => router.push("/profile")}>
                 <UserIcon className="mr-2 h-4 w-4" />
                 Profile
               </DropdownMenuItem>

@@ -1,61 +1,4 @@
 services:
-  postgres:
-    image: postgres:16-alpine
-    container_name: splash-postgres
-    restart: unless-stopped
-    ports:
-      - "5433:5432"
-    environment:
-      POSTGRES_DB: splash_dev
-      POSTGRES_USER: splash
-      POSTGRES_PASSWORD: splash_dev_password
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U splash -d splash_dev"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-
-  redis:
-    image: redis:7-alpine
-    container_name: splash-redis
-    restart: unless-stopped
-    ports:
-      - "6380:6379"
-    volumes:
-      - redis_data:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-
-  backend:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
-      target: development
-    container_name: splash-backend
-    restart: unless-stopped
-    ports:
-      - "3011:3011"
-    environment:
-      NODE_ENV: development
-      DATABASE_URL: postgresql://splash:splash_dev_password@postgres:5432/splash_dev?schema=public
-      REDIS_HOST: redis
-      REDIS_PORT: 6379
-      PORT: 3011
-    volumes:
-      - ./backend:/app
-      - /app/node_modules
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    command: npm run start:dev
-
   frontend:
     build:
       context: ./frontend
@@ -68,18 +11,11 @@ services:
     environment:
       NODE_ENV: development
       PORT: 3010
-      NEXT_PUBLIC_API_URL: http://localhost:3011
-      NEXT_PUBLIC_WS_URL: ws://localhost:3011
+      # URL of the Quint API. On a host running Quint locally, use
+      # http://host.docker.internal:8888 (macOS/Windows) or the host IP on Linux.
+      NEXT_PUBLIC_QUINT_HOST: ${NEXT_PUBLIC_QUINT_HOST:-http://host.docker.internal:8888}
     volumes:
       - ./frontend:/app
       - /app/node_modules
       - /app/.next
-    depends_on:
-      - backend
     command: npm run dev
-
-volumes:
-  postgres_data:
-    driver: local
-  redis_data:
-    driver: local
