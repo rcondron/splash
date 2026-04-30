@@ -39,6 +39,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { quintApi } from "@/lib/api";
 import { getSocket } from "@/lib/socket";
+import { useAuthStore } from "@/store/auth";
 
 type ViewMode = "table" | "kanban";
 
@@ -128,6 +129,7 @@ interface CreateFixtureResponse {
 
 export default function FixturesPage() {
   const router = useRouter();
+  const matrixUserId = useAuthStore((s) => s.matrixUserId);
   const [viewMode, setViewMode] = useState<ViewMode>("table");
   const [searchQuery, setSearchQuery] = useState("");
   const [showCreate, setShowCreate] = useState(false);
@@ -271,6 +273,8 @@ export default function FixturesPage() {
           );
         }
         toast.success("Finalize requested — waiting for the other principal to confirm.");
+      } else if (res.outcome === "already_requested") {
+        toast("You already requested finalization — the other principal must confirm.");
       } else if (res.outcome === "already_finalized") {
         toast("This fixture is already finalized.");
       }
@@ -572,31 +576,47 @@ export default function FixturesPage() {
                           </button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end" className="w-48">
-                          <DropdownMenuItem
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setConfirmFinalizeId(fix.id);
-                            }}
-                            disabled={!!fix.finalized_at}
-                            className="gap-2"
-                          >
-                            {fix.finalized_by_1 && !fix.finalized_at ? (
-                              <>
-                                <CheckCircle2 className="h-4 w-4 text-amber-500" />
-                                Confirm Finalize
-                              </>
-                            ) : fix.finalized_at ? (
-                              <>
-                                <Lock className="h-4 w-4 text-emerald-500" />
-                                Finalized
-                              </>
-                            ) : (
-                              <>
-                                <Lock className="h-4 w-4" />
-                                Finalize &amp; Close
-                              </>
-                            )}
-                          </DropdownMenuItem>
+                          {(() => {
+                            const iAmInitiator = fix.finalized_by_1 === matrixUserId;
+                            const pendingOther = !!fix.finalized_by_1 && !fix.finalized_at;
+                            const canConfirm = pendingOther && !iAmInitiator;
+                            return (
+                              <DropdownMenuItem
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  if (iAmInitiator && pendingOther) {
+                                    toast("Waiting for the other principal to confirm.");
+                                    return;
+                                  }
+                                  setConfirmFinalizeId(fix.id);
+                                }}
+                                disabled={!!fix.finalized_at || (pendingOther && iAmInitiator)}
+                                className="gap-2"
+                              >
+                                {fix.finalized_at ? (
+                                  <>
+                                    <Lock className="h-4 w-4 text-emerald-500" />
+                                    Finalized
+                                  </>
+                                ) : canConfirm ? (
+                                  <>
+                                    <CheckCircle2 className="h-4 w-4 text-amber-500" />
+                                    Confirm Finalize
+                                  </>
+                                ) : iAmInitiator && pendingOther ? (
+                                  <>
+                                    <Lock className="h-4 w-4 text-slate-400" />
+                                    Awaiting Confirmation
+                                  </>
+                                ) : (
+                                  <>
+                                    <Lock className="h-4 w-4" />
+                                    Finalize &amp; Close
+                                  </>
+                                )}
+                              </DropdownMenuItem>
+                            );
+                          })()}
                           <DropdownMenuItem
                             onClick={(e) => {
                               e.stopPropagation();
@@ -744,10 +764,12 @@ export default function FixturesPage() {
           </DialogHeader>
           {(() => {
             const fx = fixtures.find((f) => f.id === confirmFinalizeId);
-            const pendingOther = fx?.finalized_by_1 && !fx.finalized_at;
+            const pendingOther = !!fx?.finalized_by_1 && !fx?.finalized_at;
+            const iAmInitiator = fx?.finalized_by_1 === matrixUserId;
+            const canConfirm = pendingOther && !iAmInitiator;
             return (
               <>
-                {pendingOther ? (
+                {canConfirm ? (
                   <p className="text-sm text-slate-600">
                     The other principal has already requested to finalize{" "}
                     <span className="font-medium">{fx?.title}</span>. By confirming, you
@@ -772,19 +794,19 @@ export default function FixturesPage() {
                   <Button
                     onClick={() => confirmFinalizeId && void handleFinalize(confirmFinalizeId)}
                     disabled={finalizing}
-                    className={pendingOther
+                    className={canConfirm
                       ? "bg-emerald-600 text-white hover:bg-emerald-700"
                       : "bg-blue-600 text-white hover:bg-blue-700"
                     }
                   >
                     {finalizing ? (
                       <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    ) : pendingOther ? (
+                    ) : canConfirm ? (
                       <CheckCircle2 className="mr-2 h-4 w-4" />
                     ) : (
                       <Lock className="mr-2 h-4 w-4" />
                     )}
-                    {pendingOther ? "Confirm & Finalize" : "Request Finalize"}
+                    {canConfirm ? "Confirm & Finalize" : "Request Finalize"}
                   </Button>
                 </div>
               </>
