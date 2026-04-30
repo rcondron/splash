@@ -11,6 +11,8 @@ import {
   X,
 } from "lucide-react";
 import toast from "react-hot-toast";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { quintApi } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 
@@ -37,7 +39,7 @@ interface Document {
 
 interface Props {
   fixtureId: string;
-  docType: "recap" | "charter_party";
+  docType: "recap" | "charter_party" | "report";
   label: string;
 }
 
@@ -235,8 +237,24 @@ export function FixtureDocumentTab({ fixtureId, docType, label }: Props) {
                   </div>
                 </div>
               ) : (
-                <div className="prose prose-sm prose-slate max-w-none text-sm leading-relaxed whitespace-pre-line">
-                  {sec.content_markdown}
+                <div className="prose prose-sm prose-slate max-w-none text-sm leading-relaxed prose-headings:scroll-mt-20 prose-a:text-blue-600 prose-a:no-underline hover:prose-a:underline prose-pre:bg-slate-900 prose-pre:text-slate-100">
+                  <ReactMarkdown
+                    remarkPlugins={[remarkGfm]}
+                    components={{
+                      a: ({ href, children, ...rest }) => (
+                        <a
+                          href={href}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          {...rest}
+                        >
+                          {children}
+                        </a>
+                      ),
+                    }}
+                  >
+                    {sec.content_markdown}
+                  </ReactMarkdown>
                 </div>
               )}
             </div>

@@ -1,12 +1,15 @@
 import { quintApi } from "@/lib/api";
+import { mxcToMediaPath } from "@/lib/mxc-media";
 
-/** Resolves user.avatarUrl for <img> / Avatar (remote URLs or local data URLs). */
+/** Resolves user.avatarUrl for <img> / Avatar (HTTP(S), data URLs, or Matrix MXC). */
 export function getAvatarSrc(
   url: string | null | undefined,
 ): string | undefined {
   if (!url) return undefined;
   if (url.startsWith("http://") || url.startsWith("https://")) return url;
   if (url.startsWith("data:image/")) return url;
+  const mxc = mxcToMediaPath(url);
+  if (mxc) return mxc;
   return undefined;
 }
 

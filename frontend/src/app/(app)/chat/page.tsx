@@ -26,6 +26,7 @@ import {
   ChevronDown,
   Sparkles,
   Anchor,
+  RefreshCw,
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -100,6 +101,19 @@ interface FixtureNotice {
   discharge_port?: string | null;
   source_type?: string;
   confidence?: number | null;
+}
+
+interface RoomFixtureSummary {
+  id: string;
+  room_id: string;
+  fixture_number: string;
+  title: string;
+  vessel_name?: string | null;
+  cargo_description?: string | null;
+  load_port?: string | null;
+  discharge_port?: string | null;
+  stage?: string;
+  status?: string;
 }
 
 interface PeerContactPayload {
@@ -536,6 +550,19 @@ export default function ChatPage() {
         const next = { ...prev, [fx.room_id]: fx };
         return next;
       });
+      setRoomFixtures((prev) => ({
+        ...prev,
+        [fx.room_id]: {
+          id: fx.id,
+          room_id: fx.room_id,
+          fixture_number: fx.fixture_number,
+          title: fx.title,
+          vessel_name: fx.vessel_name,
+          cargo_description: fx.cargo_description,
+          load_port: fx.load_port,
+          discharge_port: fx.discharge_port,
+        },
+      }));
     };
 
     const onMessageDeleted = (data: { event_id: string; room_id: string; sender?: string }) => {
@@ -584,6 +611,19 @@ export default function ChatPage() {
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  /* Fetch active fixtures for all rooms so we can show the indicator */
+  useEffect(() => {
+    if (!roomsLoaded || rooms.length === 0) return;
+    const ids = rooms.map((r) => r.room_id);
+    quintApi
+      .post<{ fixtures: Record<string, RoomFixtureSummary> }>(
+        "/v1/fixtures/by-rooms",
+        { room_ids: ids },
+      )
+      .then((res) => setRoomFixtures(res.fixtures ?? {}))
+      .catch(() => {});
+  }, [roomsLoaded, rooms]);
 
   /* Mark messages read when viewing a room */
   useEffect(() => {
@@ -678,6 +718,10 @@ export default function ChatPage() {
   const [fixtureNotices, setFixtureNotices] = useState<
     Record<string, FixtureNotice>
   >({});
+  const [roomFixtures, setRoomFixtures] = useState<
+    Record<string, RoomFixtureSummary>
+  >({});
+  const [updatingFixture, setUpdatingFixture] = useState(false);
   const [showContactInfo, setShowContactInfo] = useState(false);
   const [peerContact, setPeerContact] = useState<PeerContactPayload | null>(null);
   const [peerContactLoading, setPeerContactLoading] = useState(false);
@@ -988,6 +1032,8 @@ export default function ChatPage() {
                 ? formatTimestamp(room.last_message.timestamp)
                 : "";
 
+              const roomFx = roomFixtures[room.room_id];
+
               return (
                 <button
                   key={room.room_id}
@@ -997,19 +1043,33 @@ export default function ChatPage() {
                     isActive ? "bg-slate-100" : "hover:bg-slate-50",
                   )}
                 >
-                  <Avatar className="h-12 w-12 shrink-0">
-                    {dmAvatarSrc ? (
-                      <AvatarImage src={dmAvatarSrc} alt="" />
-                    ) : null}
-                    <AvatarFallback
-                      className={cn(
-                        "flex items-center justify-center text-white",
-                        color,
-                      )}
-                    >
-                      <User className="h-6 w-6" strokeWidth={2} />
-                    </AvatarFallback>
-                  </Avatar>
+                  <div className="relative shrink-0">
+                    <Avatar className="h-12 w-12">
+                      {dmAvatarSrc ? (
+                        <AvatarImage src={dmAvatarSrc} alt="" />
+                      ) : null}
+                      <AvatarFallback
+                        className={cn(
+                          "flex items-center justify-center text-white",
+                          color,
+                        )}
+                      >
+                        <User className="h-6 w-6" strokeWidth={2} />
+                      </AvatarFallback>
+                    </Avatar>
+                    {roomFx && (
+                      <span
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          router.push(`/fixtures/${roomFx.id}`);
+                        }}
+                        title={`${roomFx.fixture_number}: ${roomFx.title}`}
+                        className="absolute -bottom-0.5 -right-0.5 flex h-5 w-5 items-center justify-center rounded-full bg-blue-600 text-white shadow-sm ring-2 ring-white cursor-pointer hover:bg-blue-700 transition-colors"
+                      >
+                        <Anchor className="h-3 w-3" />
+                      </span>
+                    )}
+                  </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between">
                       <p className="text-[15px] font-semibold text-slate-900 truncate">
@@ -1108,6 +1168,58 @@ export default function ChatPage() {
                   )}
                 </p>
               </div>
+              {roomFixtures[selectedRoom.room_id] && (
+                <button
+                  type="button"
+                  onClick={() => router.push(`/fixtures/${roomFixtures[selectedRoom.room_id].id}`)}
+                  title={`Open ${roomFixtures[selectedRoom.room_id].fixture_number}`}
+                  className="flex shrink-0 items-center gap-1.5 rounded-lg border border-blue-200 bg-blue-50 px-2.5 py-1.5 text-xs font-medium text-blue-700 transition-colors hover:bg-blue-100"
+                >
+                  <Anchor className="h-3.5 w-3.5" />
+                  {roomFixtures[selectedRoom.room_id].fixture_number}
+                </button>
+              )}
+              {roomFixtures[selectedRoom.room_id] && (
+                <button
+                  type="button"
+                  disabled={updatingFixture}
+                  onClick={async () => {
+                    const fx = roomFixtures[selectedRoom.room_id];
+                    if (!fx) return;
+                    setUpdatingFixture(true);
+                    try {
+                      const res = await quintApi.post<{
+                        changes_count?: number;
+                        summary?: { terms_added?: number; terms_updated?: number; issues_added?: number };
+                      }>(`/v1/fixtures/${fx.id}/update`);
+                      const c = res.changes_count ?? 0;
+                      const s = res.summary;
+                      const parts: string[] = [];
+                      if (s?.terms_added) parts.push(`${s.terms_added} term(s) added`);
+                      if (s?.terms_updated) parts.push(`${s.terms_updated} term(s) updated`);
+                      if (s?.issues_added) parts.push(`${s.issues_added} issue(s) found`);
+                      alert(
+                        c > 0
+                          ? `Fixture updated: ${parts.join(", ")}`
+                          : "Fixture is up to date — no new changes detected.",
+                      );
+                    } catch (err) {
+                      alert(
+                        err instanceof Error
+                          ? `Update failed: ${err.message}`
+                          : "Could not update fixture",
+                      );
+                    } finally {
+                      setUpdatingFixture(false);
+                    }
+                  }}
+                  title="Re-analyze chat to update fixture terms, issues, and documents"
+                  className="flex shrink-0 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-600 transition-colors hover:bg-slate-50 disabled:opacity-50"
+                >
+                  <RefreshCw className={cn("h-3.5 w-3.5", updatingFixture && "animate-spin")} />
+                  Update Fixture
+                </button>
+              )}
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <button

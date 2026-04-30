@@ -32,6 +32,10 @@ interface Issue {
   resolution: string | null;
   created_by: string | null;
   model: string | null;
+  source_event_id: string | null;
+  source_excerpt: string | null;
+  resolution_event_id: string | null;
+  resolution_excerpt: string | null;
   created_at: string | null;
 }
 
@@ -59,11 +63,13 @@ const SEV_BADGE: Record<string, string> = {
 
 const TYPE_LABEL: Record<string, string> = {
   conflicting_term: "Conflict",
-  missing_term: "Missing",
+  missing_term: "Missing Term",
+  missing_document: "Missing Doc",
   recap_mismatch: "Mismatch",
   ambiguous_language: "Ambiguous",
   action_required: "Action",
   risk_flag: "Risk",
+  question: "Question",
   general: "General",
 };
 
@@ -204,7 +210,8 @@ export function FixtureIssuesTabReal({ fixtureId }: { fixtureId: string }) {
         <div>
           <h2 className="text-lg font-semibold text-slate-900">Issues</h2>
           <p className="mt-0.5 text-sm text-slate-500">
-            Discrepancies and action items detected by AI or raised manually.
+            Issues raised in chat or created manually. AI auto-detects
+            resolutions.
           </p>
         </div>
         <div className="flex gap-2">
@@ -378,6 +385,40 @@ export function FixtureIssuesTabReal({ fixtureId }: { fixtureId: string }) {
                     <p className="text-sm text-slate-700 whitespace-pre-line">
                       {issue.description}
                     </p>
+
+                    {/* Chat reference — where the issue was raised */}
+                    {issue.source_excerpt && (
+                      <div className="flex items-start gap-1.5 rounded border border-blue-100 bg-blue-50/50 px-2.5 py-2">
+                        <MessageSquare className="mt-0.5 h-3 w-3 shrink-0 text-blue-400" />
+                        <div className="min-w-0">
+                          <p className="text-[10px] font-semibold uppercase text-blue-500">
+                            Raised in chat
+                            {issue.created_by &&
+                              issue.created_by !== "ai" &&
+                              ` by ${issue.created_by}`}
+                          </p>
+                          <p className="text-xs italic text-slate-600 line-clamp-3">
+                            &ldquo;{issue.source_excerpt}&rdquo;
+                          </p>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Resolution chat reference */}
+                    {issue.resolution_excerpt && issue.status === "resolved" && (
+                      <div className="flex items-start gap-1.5 rounded border border-emerald-100 bg-emerald-50/50 px-2.5 py-2">
+                        <Check className="mt-0.5 h-3 w-3 shrink-0 text-emerald-500" />
+                        <div className="min-w-0">
+                          <p className="text-[10px] font-semibold uppercase text-emerald-600">
+                            Resolved in chat
+                          </p>
+                          <p className="text-xs italic text-slate-600 line-clamp-3">
+                            &ldquo;{issue.resolution_excerpt}&rdquo;
+                          </p>
+                        </div>
+                      </div>
+                    )}
+
                     {issue.related_term_key && (
                       <p className="text-xs text-slate-500">
                         Related term:{" "}

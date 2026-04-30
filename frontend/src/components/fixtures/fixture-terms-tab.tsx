@@ -2,10 +2,13 @@
 
 import { useCallback, useEffect, useState } from "react";
 import {
+  ArrowRightLeft,
+  Ban,
   Check,
   Edit3,
   Loader2,
   Lock,
+  MessageSquare,
   RefreshCw,
   Sparkles,
   Trash2,
@@ -44,15 +47,27 @@ interface Candidate {
   confidence: number | null;
   evidence_quote: string | null;
   candidate_status: string;
+  proposed_by_party: string | null;
+  source_event_id: string | null;
 }
 
 interface TermsData {
   terms: Term[];
   candidates: Candidate[];
+  my_party: string | null;
 }
 
+const PARTY_LABEL: Record<string, string> = {
+  charterer: "Charterer",
+  owner: "Owner",
+};
+
 export function FixtureTermsTab({ fixtureId }: { fixtureId: string }) {
-  const [data, setData] = useState<TermsData>({ terms: [], candidates: [] });
+  const [data, setData] = useState<TermsData>({
+    terms: [],
+    candidates: [],
+    my_party: null,
+  });
   const [loading, setLoading] = useState(true);
   const [extracting, setExtracting] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -63,7 +78,11 @@ export function FixtureTermsTab({ fixtureId }: { fixtureId: string }) {
       const res = await quintApi.get<TermsData & { success?: boolean }>(
         `/v1/fixtures/${fixtureId}/terms`,
       );
-      setData({ terms: res.terms ?? [], candidates: res.candidates ?? [] });
+      setData({
+        terms: res.terms ?? [],
+        candidates: res.candidates ?? [],
+        my_party: res.my_party ?? null,
+      });
     } catch {
       /* keep existing */
     } finally {
@@ -83,9 +102,15 @@ export function FixtureTermsTab({ fixtureId }: { fixtureId: string }) {
       const res = await quintApi.post<TermsData & { success?: boolean }>(
         `/v1/fixtures/${fixtureId}/terms/${endpoint}`,
       );
-      setData({ terms: res.terms ?? [], candidates: res.candidates ?? [] });
+      setData({
+        terms: res.terms ?? [],
+        candidates: res.candidates ?? [],
+        my_party: data.my_party,
+      });
       toast.success(
-        reextract ? "Terms re-extracted from chat" : "Terms extracted from chat",
+        reextract
+          ? "Terms re-extracted from chat"
+          : "Terms extracted from chat",
       );
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Extraction failed");
@@ -100,7 +125,7 @@ export function FixtureTermsTab({ fixtureId }: { fixtureId: string }) {
         `/v1/fixtures/${fixtureId}/candidates/${candidateId}/accept`,
       );
       void load();
-      toast.success("Term accepted");
+      toast.success("Term accepted and locked");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Failed");
     }
@@ -112,8 +137,21 @@ export function FixtureTermsTab({ fixtureId }: { fixtureId: string }) {
         `/v1/fixtures/${fixtureId}/candidates/${candidateId}/reject`,
       );
       void load();
-    } catch {
-      /* ignore */
+      toast.success("Term rejected");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed");
+    }
+  };
+
+  const handleCancel = async (candidateId: string) => {
+    try {
+      await quintApi.post(
+        `/v1/fixtures/${fixtureId}/candidates/${candidateId}/cancel`,
+      );
+      void load();
+      toast.success("Proposal cancelled");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed");
     }
   };
 
@@ -162,6 +200,7 @@ export function FixtureTermsTab({ fixtureId }: { fixtureId: string }) {
 
   const hasTerms = data.terms.length > 0;
   const hasCandidates = data.candidates.length > 0;
+  const myParty = data.my_party;
 
   return (
     <div className="space-y-6">
@@ -169,10 +208,21 @@ export function FixtureTermsTab({ fixtureId }: { fixtureId: string }) {
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-lg font-semibold text-slate-900">
-            Negotiated terms
+            Negotiated Terms
           </h2>
           <p className="mt-0.5 text-sm text-slate-500">
-            AI extracts terms from chat. Accept, edit, or lock them.
+            {myParty ? (
+              <>
+                You are the{" "}
+                <span className="font-semibold text-slate-700">
+                  {PARTY_LABEL[myParty] ?? myParty}
+                </span>
+                . Accept terms from the other party, or cancel your own
+                proposals.
+              </>
+            ) : (
+              "AI extracts terms from chat. Accept, counter, or reject them."
+            )}
           </p>
         </div>
         <div className="flex gap-2">
@@ -207,13 +257,13 @@ export function FixtureTermsTab({ fixtureId }: { fixtureId: string }) {
         </div>
       </div>
 
-      {/* Accepted terms */}
+      {/* Accepted / locked terms */}
       {hasTerms ? (
         <div className="rounded-xl border border-slate-200 bg-white">
           <div className="grid grid-cols-12 gap-3 border-b border-slate-100 px-4 py-2.5 text-[11px] font-semibold uppercase tracking-wider text-slate-400">
             <div className="col-span-3">Term</div>
             <div className="col-span-4">Value</div>
-            <div className="col-span-2">Source</div>
+            <div className="col-span-2">Status</div>
             <div className="col-span-1 text-center">Conf.</div>
             <div className="col-span-2 text-right">Actions</div>
           </div>
@@ -238,8 +288,7 @@ export function FixtureTermsTab({ fixtureId }: { fixtureId: string }) {
                         className="h-7 text-sm"
                         autoFocus
                         onKeyDown={(e) => {
-                          if (e.key === "Enter")
-                            void handleSaveEdit(t.id);
+                          if (e.key === "Enter") void handleSaveEdit(t.id);
                           if (e.key === "Escape") setEditingId(null);
                         }}
                       />
@@ -268,16 +317,16 @@ export function FixtureTermsTab({ fixtureId }: { fixtureId: string }) {
                   )}
                 </div>
                 <div className="col-span-2">
-                  <span
-                    className={cn(
-                      "inline-block rounded-full px-2 py-0.5 text-[10px] font-medium",
-                      t.source_type === "ai_extracted"
-                        ? "bg-blue-50 text-blue-700"
-                        : "bg-slate-100 text-slate-600",
-                    )}
-                  >
-                    {t.source_type === "ai_extracted" ? "AI" : "Manual"}
-                  </span>
+                  {t.is_locked ? (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
+                      <Lock className="h-2.5 w-2.5" />
+                      Agreed
+                    </span>
+                  ) : (
+                    <span className="inline-block rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-700">
+                      Draft
+                    </span>
+                  )}
                 </div>
                 <div className="col-span-1 text-center">
                   {t.confidence != null && (
@@ -329,7 +378,7 @@ export function FixtureTermsTab({ fixtureId }: { fixtureId: string }) {
             ))}
           </div>
         </div>
-      ) : (
+      ) : !hasCandidates ? (
         <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 p-8 text-center">
           <Sparkles className="mx-auto mb-3 h-8 w-8 text-slate-300" />
           <p className="text-sm font-medium text-slate-600">
@@ -337,69 +386,115 @@ export function FixtureTermsTab({ fixtureId }: { fixtureId: string }) {
           </p>
           <p className="mt-1 text-xs text-slate-400">
             Click &quot;Extract from chat&quot; to pull terms from the
-            conversation, or they&apos;ll be extracted automatically as
-            members negotiate.
+            conversation, or they&apos;ll be extracted automatically as members
+            negotiate.
           </p>
         </div>
-      )}
+      ) : null}
 
-      {/* Candidates */}
+      {/* Candidates — party-aware actions */}
       {hasCandidates && (
         <div>
           <h3 className="mb-3 text-sm font-semibold text-slate-700">
-            AI suggestions — review &amp; accept
+            Proposed Terms — review &amp; respond
           </h3>
           <div className="space-y-2">
-            {data.candidates.map((c) => (
-              <div
-                key={c.id}
-                className="flex items-start gap-3 rounded-lg border border-blue-100 bg-blue-50/50 p-3"
-              >
-                <Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-blue-500" />
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-medium text-slate-900">
-                    {c.term_label}
-                    <span className="ml-2 font-normal text-slate-700">
-                      {c.proposed_value}
-                      {c.unit && (
-                        <span className="ml-1 text-xs text-slate-400">
-                          {c.unit}
+            {data.candidates.map((c) => {
+              const isMine =
+                myParty != null && c.proposed_by_party === myParty;
+              const proposerLabel = c.proposed_by_party
+                ? PARTY_LABEL[c.proposed_by_party] ?? c.proposed_by_party
+                : null;
+
+              return (
+                <div
+                  key={c.id}
+                  className={cn(
+                    "flex items-start gap-3 rounded-lg border p-3",
+                    isMine
+                      ? "border-slate-200 bg-slate-50/50"
+                      : "border-blue-100 bg-blue-50/50",
+                  )}
+                >
+                  <Sparkles
+                    className={cn(
+                      "mt-0.5 h-4 w-4 shrink-0",
+                      isMine ? "text-slate-400" : "text-blue-500",
+                    )}
+                  />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm font-medium text-slate-900">
+                        {c.term_label}
+                        <span className="ml-2 font-normal text-slate-700">
+                          {c.proposed_value}
+                          {c.unit && (
+                            <span className="ml-1 text-xs text-slate-400">
+                              {c.unit}
+                            </span>
+                          )}
+                        </span>
+                      </p>
+                      {proposerLabel && (
+                        <span
+                          className={cn(
+                            "rounded-full px-2 py-0.5 text-[10px] font-semibold",
+                            isMine
+                              ? "bg-slate-200 text-slate-600"
+                              : "bg-blue-100 text-blue-700",
+                          )}
+                        >
+                          {isMine ? "Your proposal" : `From ${proposerLabel}`}
                         </span>
                       )}
-                    </span>
-                  </p>
-                  {c.evidence_quote && (
-                    <p className="mt-1 text-xs italic text-slate-500">
-                      &ldquo;{c.evidence_quote}&rdquo;
-                    </p>
-                  )}
-                  {c.confidence != null && (
-                    <span className="mt-1 inline-block rounded-full bg-blue-100 px-1.5 py-0.5 text-[10px] font-medium text-blue-700">
-                      {Math.round(c.confidence * 100)}% confidence
-                    </span>
-                  )}
+                    </div>
+                    {c.evidence_quote && (
+                      <div className="mt-1.5 flex items-start gap-1.5 rounded border border-slate-200 bg-white/70 px-2 py-1.5">
+                        <MessageSquare className="mt-0.5 h-3 w-3 shrink-0 text-slate-400" />
+                        <p className="text-xs italic text-slate-500 line-clamp-2">
+                          &ldquo;{c.evidence_quote}&rdquo;
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex shrink-0 gap-1">
+                    {isMine ? (
+                      /* Proposer can only cancel */
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-7 px-2.5 text-xs text-slate-500"
+                        onClick={() => void handleCancel(c.id)}
+                      >
+                        <Ban className="mr-1 h-3 w-3" />
+                        Cancel
+                      </Button>
+                    ) : (
+                      /* Receiver can accept, reject, or counter */
+                      <>
+                        <Button
+                          size="sm"
+                          className="h-7 bg-emerald-600 px-2.5 text-xs hover:bg-emerald-700"
+                          onClick={() => void handleAccept(c.id)}
+                        >
+                          <Check className="mr-1 h-3 w-3" />
+                          Accept
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-7 px-2.5 text-xs text-slate-500"
+                          onClick={() => void handleReject(c.id)}
+                        >
+                          <X className="mr-1 h-3 w-3" />
+                          Reject
+                        </Button>
+                      </>
+                    )}
+                  </div>
                 </div>
-                <div className="flex shrink-0 gap-1">
-                  <Button
-                    size="sm"
-                    className="h-7 bg-emerald-600 px-2.5 text-xs hover:bg-emerald-700"
-                    onClick={() => void handleAccept(c.id)}
-                  >
-                    <Check className="mr-1 h-3 w-3" />
-                    Accept
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="h-7 px-2.5 text-xs text-slate-500"
-                    onClick={() => void handleReject(c.id)}
-                  >
-                    <X className="mr-1 h-3 w-3" />
-                    Reject
-                  </Button>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}

@@ -15,6 +15,10 @@ import {
   Sparkles,
   LogOut,
   X,
+  MoreVertical,
+  Lock,
+  Archive,
+  CheckCircle2,
 } from "lucide-react";
 import toast from "react-hot-toast";
 import { cn } from "@/lib/utils";
@@ -26,6 +30,13 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { quintApi } from "@/lib/api";
 import { getSocket } from "@/lib/socket";
 
@@ -99,6 +110,10 @@ interface Fixture {
   reasoning: string | null;
   created_at: string | null;
   updated_at: string | null;
+  finalized_by_1: string | null;
+  finalized_by_2: string | null;
+  finalized_at: string | null;
+  archived_at: string | null;
 }
 
 interface ListFixturesResponse {
@@ -132,20 +147,29 @@ export default function FixturesPage() {
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
 
+  const [showFinalized, setShowFinalized] = useState(false);
+  const [showArchived, setShowArchived] = useState(false);
+
   const [recentAiId, setRecentAiId] = useState<string | null>(null);
   const recentAiTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const refresh = useCallback(async () => {
     setListError(null);
     try {
-      const res = await quintApi.get<ListFixturesResponse>("/v1/fixtures");
+      const params = new URLSearchParams();
+      if (showFinalized) params.set("include_finalized", "1");
+      if (showArchived) params.set("include_archived", "1");
+      const qs = params.toString();
+      const res = await quintApi.get<ListFixturesResponse>(
+        `/v1/fixtures${qs ? `?${qs}` : ""}`,
+      );
       setFixtures(res.fixtures ?? []);
     } catch (e) {
       setListError(e instanceof Error ? e.message : "Failed to load fixtures");
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [showFinalized, showArchived]);
 
   useEffect(() => {
     setLoading(true);
@@ -213,6 +237,8 @@ export default function FixturesPage() {
 
   const [confirmLeaveId, setConfirmLeaveId] = useState<string | null>(null);
   const [leavingFixture, setLeavingFixture] = useState(false);
+  const [confirmFinalizeId, setConfirmFinalizeId] = useState<string | null>(null);
+  const [finalizing, setFinalizing] = useState(false);
 
   const handleLeaveFixture = async (fixtureId: string) => {
     setLeavingFixture(true);
@@ -225,6 +251,52 @@ export default function FixturesPage() {
     } finally {
       setLeavingFixture(false);
       setConfirmLeaveId(null);
+    }
+  };
+
+  const handleFinalize = async (fixtureId: string) => {
+    setFinalizing(true);
+    try {
+      const res = await quintApi.post<{
+        outcome: string;
+        fixture: Fixture | null;
+      }>(`/v1/fixtures/${fixtureId}/finalize`);
+      if (res.outcome === "finalized") {
+        setFixtures((prev) => prev.filter((f) => f.id !== fixtureId));
+        toast.success("Fixture finalized & closed — detached from chat.");
+      } else if (res.outcome === "requested") {
+        if (res.fixture) {
+          setFixtures((prev) =>
+            prev.map((f) => (f.id === fixtureId ? { ...f, ...res.fixture! } : f)),
+          );
+        }
+        toast.success("Finalize requested — waiting for the other principal to confirm.");
+      } else if (res.outcome === "already_finalized") {
+        toast("This fixture is already finalized.");
+      }
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not finalize");
+    } finally {
+      setFinalizing(false);
+      setConfirmFinalizeId(null);
+    }
+  };
+
+  const handleArchiveToggle = async (fixtureId: string, isArchived: boolean) => {
+    try {
+      if (isArchived) {
+        await quintApi.post(`/v1/fixtures/${fixtureId}/unarchive`);
+        setFixtures((prev) =>
+          prev.map((f) => (f.id === fixtureId ? { ...f, archived_at: null } : f)),
+        );
+        toast.success("Fixture unarchived.");
+      } else {
+        await quintApi.post(`/v1/fixtures/${fixtureId}/archive`);
+        setFixtures((prev) => prev.filter((f) => f.id !== fixtureId));
+        toast.success("Fixture archived.");
+      }
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not update archive status");
     }
   };
 
@@ -278,10 +350,54 @@ export default function FixturesPage() {
             className="w-full rounded-lg border border-slate-200 bg-white py-2 pl-10 pr-4 text-sm outline-none focus:border-blue-300 focus:ring-1 focus:ring-blue-200"
           />
         </div>
-        <button className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600 hover:bg-slate-50">
-          <Filter className="h-4 w-4" />
-          Filters
-        </button>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button className={cn(
+              "inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm transition-colors",
+              (showFinalized || showArchived)
+                ? "border-blue-300 bg-blue-50 text-blue-700"
+                : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50",
+            )}>
+              <Filter className="h-4 w-4" />
+              Filters
+              {(showFinalized || showArchived) && (
+                <span className="ml-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-blue-600 text-[10px] font-bold text-white">
+                  {(showFinalized ? 1 : 0) + (showArchived ? 1 : 0)}
+                </span>
+              )}
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" className="w-52">
+            <DropdownMenuItem
+              onClick={() => setShowFinalized((v) => !v)}
+              className="gap-2"
+            >
+              <div className={cn(
+                "flex h-4 w-4 items-center justify-center rounded border",
+                showFinalized
+                  ? "border-blue-600 bg-blue-600 text-white"
+                  : "border-slate-300 bg-white",
+              )}>
+                {showFinalized && <CheckCircle2 className="h-3 w-3" />}
+              </div>
+              Show Finalized
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onClick={() => setShowArchived((v) => !v)}
+              className="gap-2"
+            >
+              <div className={cn(
+                "flex h-4 w-4 items-center justify-center rounded border",
+                showArchived
+                  ? "border-blue-600 bg-blue-600 text-white"
+                  : "border-slate-300 bg-white",
+              )}>
+                {showArchived && <CheckCircle2 className="h-3 w-3" />}
+              </div>
+              Show Archived
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
         <div className="flex rounded-lg border border-slate-200 bg-white p-0.5">
           <button
             onClick={() => setViewMode("table")}
@@ -417,7 +533,7 @@ export default function FixturesPage() {
                         {STAGE_LABELS[fix.stage] ?? fix.stage}
                       </span>
                     </div>
-                    <div className="flex items-center">
+                    <div className="flex items-center gap-1.5">
                       <span
                         className={cn(
                           "inline-block rounded-full px-2 py-0.5 text-[10px] font-medium capitalize",
@@ -426,6 +542,15 @@ export default function FixturesPage() {
                       >
                         {fix.status}
                       </span>
+                      {fix.finalized_by_1 && !fix.finalized_at && (
+                        <span
+                          className="inline-flex items-center gap-0.5 rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-700"
+                          title="Finalization pending — one principal has confirmed"
+                        >
+                          <Lock className="h-2.5 w-2.5" />
+                          1/2
+                        </span>
+                      )}
                     </div>
                     <div className="flex items-center justify-end text-xs text-slate-400">
                       {fix.updated_at
@@ -436,17 +561,65 @@ export default function FixturesPage() {
                         : "\u2014"}
                     </div>
                     <div className="flex items-center justify-end">
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setConfirmLeaveId(fix.id);
-                        }}
-                        title="Leave fixture — removes you only"
-                        className="rounded-md p-1 text-slate-300 transition-colors hover:bg-red-50 hover:text-red-500"
-                      >
-                        <LogOut className="h-3.5 w-3.5" />
-                      </button>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <button
+                            type="button"
+                            onClick={(e) => e.stopPropagation()}
+                            className="rounded-md p-1 text-slate-300 transition-colors hover:bg-slate-100 hover:text-slate-600"
+                          >
+                            <MoreVertical className="h-4 w-4" />
+                          </button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="w-48">
+                          <DropdownMenuItem
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setConfirmFinalizeId(fix.id);
+                            }}
+                            disabled={!!fix.finalized_at}
+                            className="gap-2"
+                          >
+                            {fix.finalized_by_1 && !fix.finalized_at ? (
+                              <>
+                                <CheckCircle2 className="h-4 w-4 text-amber-500" />
+                                Confirm Finalize
+                              </>
+                            ) : fix.finalized_at ? (
+                              <>
+                                <Lock className="h-4 w-4 text-emerald-500" />
+                                Finalized
+                              </>
+                            ) : (
+                              <>
+                                <Lock className="h-4 w-4" />
+                                Finalize &amp; Close
+                              </>
+                            )}
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              void handleArchiveToggle(fix.id, !!fix.archived_at);
+                            }}
+                            className="gap-2"
+                          >
+                            <Archive className="h-4 w-4" />
+                            {fix.archived_at ? "Unarchive" : "Archive"}
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setConfirmLeaveId(fix.id);
+                            }}
+                            className="gap-2 text-red-600 focus:text-red-600"
+                          >
+                            <LogOut className="h-4 w-4" />
+                            Leave
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
                     </div>
                   </div>
                 );
@@ -554,6 +727,69 @@ export default function FixturesPage() {
               Leave fixture
             </Button>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Finalize & Close confirmation */}
+      <Dialog
+        open={!!confirmFinalizeId}
+        onOpenChange={(open) => { if (!open) setConfirmFinalizeId(null); }}
+      >
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Lock className="h-4 w-4" />
+              Finalize &amp; Close
+            </DialogTitle>
+          </DialogHeader>
+          {(() => {
+            const fx = fixtures.find((f) => f.id === confirmFinalizeId);
+            const pendingOther = fx?.finalized_by_1 && !fx.finalized_at;
+            return (
+              <>
+                {pendingOther ? (
+                  <p className="text-sm text-slate-600">
+                    The other principal has already requested to finalize{" "}
+                    <span className="font-medium">{fx?.title}</span>. By confirming, you
+                    will lock all fixture data, detach it from chat, and mark it as closed.
+                    This cannot be undone.
+                  </p>
+                ) : (
+                  <p className="text-sm text-slate-600">
+                    This will send a finalization request to the chat room. The other
+                    principal must also confirm before the fixture is locked and detached
+                    from chat. Once finalized, no further edits can be made.
+                  </p>
+                )}
+                <div className="flex justify-end gap-2 pt-2">
+                  <Button
+                    variant="outline"
+                    onClick={() => setConfirmFinalizeId(null)}
+                    disabled={finalizing}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    onClick={() => confirmFinalizeId && void handleFinalize(confirmFinalizeId)}
+                    disabled={finalizing}
+                    className={pendingOther
+                      ? "bg-emerald-600 text-white hover:bg-emerald-700"
+                      : "bg-blue-600 text-white hover:bg-blue-700"
+                    }
+                  >
+                    {finalizing ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : pendingOther ? (
+                      <CheckCircle2 className="mr-2 h-4 w-4" />
+                    ) : (
+                      <Lock className="mr-2 h-4 w-4" />
+                    )}
+                    {pendingOther ? "Confirm & Finalize" : "Request Finalize"}
+                  </Button>
+                </div>
+              </>
+            );
+          })()}
         </DialogContent>
       </Dialog>
 

@@ -8,6 +8,7 @@ import {
   FileText,
   Clock,
   Shield,
+  ShieldOff,
   BarChart3,
   CheckCircle2,
   AlertTriangle,
@@ -16,6 +17,8 @@ import {
   PanelRightOpen,
   LogOut,
   Users,
+  Paperclip,
+  ClipboardList,
 } from "lucide-react";
 import toast from "react-hot-toast";
 import { cn } from "@/lib/utils";
@@ -30,21 +33,27 @@ import { Button } from "@/components/ui/button";
 import { DealCopilotRail } from "@/components/fixtures/deal-copilot-rail";
 import { FixtureIssuesTabReal } from "@/components/fixtures/fixture-issues-tab-real";
 import { FixtureMembersTab } from "@/components/fixtures/fixture-members-tab";
+import { FixtureOverviewTab } from "@/components/fixtures/fixture-overview-tab";
 import { FixtureTermsTab } from "@/components/fixtures/fixture-terms-tab";
+import { FixtureTimelineTab } from "@/components/fixtures/fixture-timeline-tab";
+import { FixtureAuditTab } from "@/components/fixtures/fixture-audit-tab";
 import { FixtureDocumentTab } from "@/components/fixtures/fixture-document-tab";
+import { FixtureFilesTab } from "@/components/fixtures/fixture-files-tab";
 
 const TABS = [
   { key: "overview", label: "Overview", icon: BarChart3 },
   { key: "terms", label: "Terms", icon: CheckCircle2 },
   { key: "recap", label: "Recap", icon: FileText },
   { key: "charter-party", label: "Charter Party", icon: Shield },
+  { key: "reports", label: "Reports", icon: ClipboardList },
+  { key: "files", label: "Files", icon: Paperclip },
   { key: "issues", label: "Issues", icon: AlertTriangle },
   { key: "members", label: "Members", icon: Users },
   { key: "timeline", label: "Timeline", icon: Clock },
   { key: "audit", label: "Audit", icon: Shield },
 ] as const;
 
-const COPILOT_TABS = new Set(["overview", "terms", "recap", "charter-party"]);
+const COPILOT_TABS = new Set(["overview", "terms", "recap", "charter-party", "reports"]);
 
 export default function FixtureDetailPage() {
   const params = useParams();
@@ -54,22 +63,37 @@ export default function FixtureDetailPage() {
   const fixtureId = String(params.id);
   const [chatRoomId, setChatRoomId] = useState<string | null>(null);
   const [chatRoomError, setChatRoomError] = useState<string | null>(null);
+  const [fixtureLoading, setFixtureLoading] = useState(true);
+  const [accessDenied, setAccessDenied] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
     setChatRoomId(null);
     setChatRoomError(null);
+    setAccessDenied(false);
+    setFixtureLoading(true);
     void (async () => {
       try {
         const res = await quintApi.get<{ fixture: { room_id: string } }>(
           `/v1/fixtures/${fixtureId}`,
         );
-        if (!cancelled) setChatRoomId(res.fixture.room_id);
+        if (!cancelled) {
+          setChatRoomId(res.fixture.room_id);
+          setFixtureLoading(false);
+        }
       } catch (e) {
         if (!cancelled) {
-          setChatRoomError(
-            e instanceof Error ? e.message : "Could not load fixture room",
-          );
+          const msg = e instanceof Error ? e.message : "";
+          const isAccessError =
+            msg.includes("No access") ||
+            msg.includes("Forbidden") ||
+            msg.includes("403");
+          if (isAccessError) {
+            setAccessDenied(true);
+          } else {
+            setChatRoomError(msg || "Could not load fixture");
+          }
+          setFixtureLoading(false);
         }
       }
     })();
@@ -95,6 +119,74 @@ export default function FixtureDetailPage() {
   };
 
   const showCopilot = COPILOT_TABS.has(activeTab);
+
+  if (fixtureLoading) {
+    return (
+      <div className="flex h-full items-center justify-center">
+        <div className="flex flex-col items-center gap-3">
+          <Loader2 className="h-8 w-8 animate-spin text-slate-400" />
+          <span className="text-sm text-slate-500">Loading fixture…</span>
+        </div>
+      </div>
+    );
+  }
+
+  if (accessDenied) {
+    return (
+      <div className="flex h-full items-center justify-center">
+        <div className="flex flex-col items-center gap-4 text-center">
+          <div className="flex h-16 w-16 items-center justify-center rounded-full bg-red-50">
+            <ShieldOff className="h-8 w-8 text-red-400" />
+          </div>
+          <div>
+            <h2 className="text-lg font-semibold text-slate-900">
+              Access Denied
+            </h2>
+            <p className="mt-1 max-w-sm text-sm text-slate-500">
+              You are not a member of this fixture. Ask a current member to add
+              you, or go back to your fixtures list.
+            </p>
+          </div>
+          <Button
+            variant="outline"
+            onClick={() => router.push("/fixtures")}
+            className="mt-2"
+          >
+            <ArrowLeft className="mr-2 h-4 w-4" />
+            Back to Fixtures
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  if (chatRoomError && !chatRoomId) {
+    return (
+      <div className="flex h-full items-center justify-center">
+        <div className="flex flex-col items-center gap-4 text-center">
+          <div className="flex h-16 w-16 items-center justify-center rounded-full bg-amber-50">
+            <AlertTriangle className="h-8 w-8 text-amber-400" />
+          </div>
+          <div>
+            <h2 className="text-lg font-semibold text-slate-900">
+              Could not load fixture
+            </h2>
+            <p className="mt-1 max-w-sm text-sm text-slate-500">
+              {chatRoomError}
+            </p>
+          </div>
+          <Button
+            variant="outline"
+            onClick={() => router.push("/fixtures")}
+            className="mt-2"
+          >
+            <ArrowLeft className="mr-2 h-4 w-4" />
+            Back to Fixtures
+          </Button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -185,8 +277,12 @@ export default function FixtureDetailPage() {
 
         <div className="flex min-w-0 min-h-0 flex-1 gap-6 overflow-hidden bg-slate-50/50 p-4 pl-5">
           <div className="min-h-0 min-w-0 flex-1 overflow-y-auto">
-            {activeTab === "terms" ? (
+            {activeTab === "overview" ? (
+              <FixtureOverviewTab fixtureId={fixtureId} />
+            ) : activeTab === "terms" ? (
               <FixtureTermsTab fixtureId={fixtureId} />
+            ) : activeTab === "timeline" ? (
+              <FixtureTimelineTab fixtureId={fixtureId} />
             ) : activeTab === "recap" ? (
               <FixtureDocumentTab
                 fixtureId={fixtureId}
@@ -199,10 +295,20 @@ export default function FixtureDetailPage() {
                 docType="charter_party"
                 label="Charter Party"
               />
+            ) : activeTab === "reports" ? (
+              <FixtureDocumentTab
+                fixtureId={fixtureId}
+                docType="report"
+                label="Status Report"
+              />
+            ) : activeTab === "files" ? (
+              <FixtureFilesTab fixtureId={fixtureId} />
             ) : activeTab === "issues" ? (
               <FixtureIssuesTabReal fixtureId={fixtureId} />
             ) : activeTab === "members" ? (
               <FixtureMembersTab fixtureId={fixtureId} />
+            ) : activeTab === "audit" ? (
+              <FixtureAuditTab fixtureId={fixtureId} />
             ) : (
               <TabPlaceholder tab={activeTab} />
             )}
