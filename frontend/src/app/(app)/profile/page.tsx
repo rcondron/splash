@@ -43,6 +43,7 @@ interface ProfileMeResponse {
   companyName?: string;
   jobTitle?: string;
   timezone?: string;
+  avatarUrl?: string | null;
 }
 
 interface UserLocation {
@@ -137,6 +138,8 @@ export default function ProfilePage() {
           lastName: res.lastName ?? "",
           email: res.email ?? "",
           phone: res.phone?.trim() || u.phone,
+          avatarUrl:
+            res.avatarUrl !== undefined ? res.avatarUrl : u.avatarUrl,
         });
       } catch {
         if (!cancelled) {
@@ -262,8 +265,8 @@ export default function ProfilePage() {
       <div>
         <h1 className="text-2xl font-bold text-slate-900">Profile</h1>
         <p className="mt-1 text-sm text-slate-500">
-          Your photo is stored in this browser session. Name, email, contact
-          details, and location are saved to your account.
+          Your photo is synced to your account (Matrix). Name, email, contact
+          details, and location are saved here as well.
         </p>
       </div>
 
@@ -333,8 +336,12 @@ export default function ProfilePage() {
         onComplete={async (jpegDataUrl) => {
           setUser({ ...user, avatarUrl: jpegDataUrl });
           try {
-            await uploadProfileAvatar(jpegDataUrl);
+            const { avatarUrl: mxc } = await uploadProfileAvatar(jpegDataUrl);
             toast.success("Profile picture updated");
+            if (mxc) {
+              const latest = useAuthStore.getState().user;
+              if (latest) setUser({ ...latest, avatarUrl: mxc });
+            }
           } catch (e) {
             console.error("uploadProfileAvatar failed:", e);
             const msg =

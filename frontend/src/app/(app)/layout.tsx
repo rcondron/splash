@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/store/auth";
+import { quintApi } from "@/lib/api";
 import { getSocket } from "@/lib/socket";
 import { Sidebar } from "@/components/sidebar";
 
@@ -11,7 +12,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
   const isChatPage = pathname === "/chat" || pathname.startsWith("/chat/");
-  const { isAuthenticated, token } = useAuthStore();
+  const { isAuthenticated, token, user, setUser } = useAuthStore();
   const [ready, setReady] = useState(false);
   const [authHydrated, setAuthHydrated] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -57,6 +58,30 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       sock.off("unread_count", onUnread);
     };
   }, [ready]);
+
+  useEffect(() => {
+    if (!ready || !user) return;
+    let cancelled = false;
+    const uid = user.id;
+    (async () => {
+      try {
+        const res = await quintApi.get<{ avatarUrl?: string | null }>(
+          "/v1/profile/me",
+        );
+        if (cancelled) return;
+        const latest = useAuthStore.getState().user;
+        if (!latest || latest.id !== uid) return;
+        const avatarUrl = res.avatarUrl ?? null;
+        if (latest.avatarUrl === avatarUrl) return;
+        setUser({ ...latest, avatarUrl });
+      } catch {
+        /* profile optional for navigation */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [ready, user?.id, setUser]);
 
   if (!authHydrated || !ready) {
     return (
