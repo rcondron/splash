@@ -37,11 +37,13 @@ export function NewRoomDialog({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [inviteSent, setInviteSent] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
 
   const reset = () => {
     setPhone("");
     setError("");
     setInviteSent(null);
+    setCopied(false);
     setLoading(false);
   };
 
@@ -101,21 +103,40 @@ export function NewRoomDialog({
 
           {inviteSent ? (
             <div className="flex flex-col items-center gap-3 py-4 text-center">
-              <div className="flex h-12 w-12 items-center justify-center rounded-full bg-emerald-50">
-                <Send className="h-6 w-6 text-emerald-600" />
+              <div className="flex h-12 w-12 items-center justify-center rounded-full bg-amber-50">
+                <Phone className="h-6 w-6 text-amber-600" />
               </div>
               <div>
                 <p className="text-sm font-semibold text-slate-900">
-                  Invite sent!
+                  Not on SPLASH yet
                 </p>
                 <p className="mt-1 text-sm text-slate-500">
-                  We sent an SMS to{" "}
                   <span className="font-medium text-slate-700">
                     {inviteSent}
                   </span>{" "}
-                  inviting them to join SPLASH. The chat will appear once they
-                  sign up.
+                  isn&apos;t registered on SPLASH. Share the link below so they
+                  can sign up — the chat will appear automatically once they
+                  join.
                 </p>
+                <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+                  <p className="text-xs font-medium text-slate-500 mb-1">Share this link:</p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const url = `${window.location.origin}/auth/login`;
+                      void navigator.clipboard.writeText(url);
+                      setError("");
+                      setCopied(true);
+                      setTimeout(() => setCopied(false), 2000);
+                    }}
+                    className="w-full text-left text-sm text-blue-600 hover:text-blue-700 break-all"
+                  >
+                    {typeof window !== "undefined" ? `${window.location.origin}/auth/login` : ""}
+                    <span className="ml-2 text-xs text-slate-400">
+                      {copied ? "Copied!" : "(click to copy)"}
+                    </span>
+                  </button>
+                </div>
               </div>
               <Button
                 variant="outline"
@@ -146,7 +167,7 @@ export function NewRoomDialog({
                 </div>
                 <p className="text-xs text-slate-400">
                   If they&apos;re on SPLASH, a chat opens instantly. If not,
-                  we&apos;ll send them an SMS invite.
+                  you&apos;ll get a link to share with them.
                 </p>
               </div>
               <Button
