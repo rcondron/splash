@@ -292,38 +292,53 @@ export function FixtureOverviewTab({ fixtureId }: { fixtureId: string }) {
 
       {/* Key terms snapshot */}
       {data.terms.length > 0 && (
-        <div className="rounded-xl border border-slate-200 bg-white p-5">
-          <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-400">
-            Key Terms
-          </h3>
-          <div className="grid grid-cols-2 gap-x-6 gap-y-3 lg:grid-cols-3">
-            {data.terms.slice(0, 9).map((t) => (
-              <div key={t.id} className="flex items-start justify-between gap-2">
-                <div className="min-w-0">
-                  <p className="text-xs text-slate-500">{t.term_label}</p>
-                  <p className="truncate text-sm font-medium text-slate-900">
-                    {t.term_value}
-                    {t.unit && (
-                      <span className="ml-1 text-xs font-normal text-slate-400">
-                        {t.unit}
-                      </span>
-                    )}
-                  </p>
-                </div>
-                {t.is_locked && (
-                  <span className="mt-1 shrink-0 text-[10px] text-amber-500">
-                    Locked
+        <KeyTermsPanel terms={data.terms} />
+      )}
+    </div>
+  );
+}
+
+function KeyTermsPanel({ terms }: { terms: Array<{ id: string; term_label: string; term_value: string | null; unit?: string | null; is_locked?: boolean }> }) {
+  const [expanded, setExpanded] = useState(false);
+  const visible = expanded ? terms : terms.slice(0, 9);
+  const hasMore = terms.length > 9;
+
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white p-5">
+      <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-400">
+        Key Terms
+      </h3>
+      <div className="grid grid-cols-2 gap-x-6 gap-y-3 lg:grid-cols-3">
+        {visible.map((t) => (
+          <div key={t.id} className="flex items-start justify-between gap-2">
+            <div className="min-w-0">
+              <p className="text-xs text-slate-500">{t.term_label}</p>
+              <p className="truncate text-sm font-medium text-slate-900">
+                {t.term_value}
+                {t.unit && (
+                  <span className="ml-1 text-xs font-normal text-slate-400">
+                    {t.unit}
                   </span>
                 )}
-              </div>
-            ))}
+              </p>
+            </div>
+            {t.is_locked && (
+              <span className="mt-1 shrink-0 text-[10px] text-amber-500">
+                Locked
+              </span>
+            )}
           </div>
-          {data.terms.length > 9 && (
-            <p className="mt-3 text-xs text-slate-400">
-              + {data.terms.length - 9} more terms
-            </p>
-          )}
-        </div>
+        ))}
+      </div>
+      {hasMore && (
+        <button
+          onClick={() => setExpanded(!expanded)}
+          className="mt-3 text-xs font-medium text-blue-600 hover:text-blue-700"
+        >
+          {expanded
+            ? "Show fewer"
+            : `+ ${terms.length - 9} more terms`}
+        </button>
       )}
     </div>
   );

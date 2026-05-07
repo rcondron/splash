@@ -389,7 +389,7 @@ export default function ChatPage() {
   const [sending, setSending] = useState(false);
   const [uploadingFile, setUploadingFile] = useState(false);
   const [fileUploadError, setFileUploadError] = useState<string | null>(null);
-  const draftInputRef = useRef<HTMLInputElement | null>(null);
+  const draftInputRef = useRef<HTMLTextAreaElement | null>(null);
 
   const [showNewRoom, setShowNewRoom] = useState(false);
 
@@ -693,6 +693,7 @@ export default function ChatPage() {
     setSending(true);
     const body = draft.trim();
     setDraft("");
+    if (draftInputRef.current) draftInputRef.current.style.height = "auto";
 
     try {
       await sendRoomTextMessage(selectedRoom.room_id, body);
@@ -971,11 +972,21 @@ export default function ChatPage() {
     }
   };
 
-  const filteredRooms = searchQuery.trim()
-    ? rooms.filter((r) =>
-        (r.name || r.room_id).toLowerCase().includes(searchQuery.toLowerCase()),
-      )
-    : rooms;
+  const filteredRooms = (() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return rooms;
+    return rooms.filter((r) => {
+      const name = (r.name || "").toLowerCase();
+      const lastMsg = (r.last_message?.body || "").toLowerCase();
+      const roomId = r.room_id.toLowerCase();
+      if (name.includes(q)) return true;
+      if (lastMsg.includes(q)) return true;
+      if (roomId.includes(q)) return true;
+      const digits = q.replace(/\D/g, "");
+      if (digits.length >= 4 && name.includes(digits)) return true;
+      return false;
+    });
+  })();
 
   const selectedDmAvatarSrc = selectedRoom
     ? dmRoomAvatarSrc(selectedRoom)
@@ -1602,12 +1613,17 @@ export default function ChatPage() {
                     <Plus className="h-5 w-5" />
                   )}
                 </button>
-                <input
+                <textarea
                   ref={draftInputRef}
-                  type="text"
+                  rows={1}
                   placeholder="Type a message"
                   value={draft}
-                  onChange={(e) => handleDraftChange(e.target.value)}
+                  onChange={(e) => {
+                    handleDraftChange(e.target.value);
+                    const el = e.target;
+                    el.style.height = "auto";
+                    el.style.height = `${Math.min(el.scrollHeight, 80)}px`;
+                  }}
                   onKeyDown={(e) => {
                     if (e.key === "Enter" && !e.shiftKey) {
                       e.preventDefault();
@@ -1615,7 +1631,8 @@ export default function ChatPage() {
                     }
                   }}
                   disabled={sending || uploadingFile}
-                  className="flex-1 rounded-full border border-slate-200 bg-slate-50 px-5 py-2.5 text-sm text-slate-700 placeholder:text-slate-400 outline-none focus:border-slate-300 focus:bg-white transition-colors"
+                  className="flex-1 resize-none overflow-y-auto rounded-2xl border border-slate-200 bg-slate-50 px-5 py-2.5 text-sm text-slate-700 placeholder:text-slate-400 outline-none focus:border-slate-300 focus:bg-white transition-colors leading-snug"
+                  style={{ maxHeight: 80 }}
                 />
                 <button
                   type="button"

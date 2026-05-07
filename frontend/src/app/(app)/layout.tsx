@@ -65,15 +65,36 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     const uid = user.id;
     (async () => {
       try {
-        const res = await quintApi.get<{ avatarUrl?: string | null }>(
-          "/v1/profile/me",
-        );
+        const res = await quintApi.get<{
+          avatarUrl?: string | null;
+          firstName?: string;
+          lastName?: string;
+          phone?: string | null;
+          email?: string | null;
+        }>("/v1/profile/me");
         if (cancelled) return;
         const latest = useAuthStore.getState().user;
         if (!latest || latest.id !== uid) return;
-        const avatarUrl = res.avatarUrl ?? null;
-        if (latest.avatarUrl === avatarUrl) return;
-        setUser({ ...latest, avatarUrl });
+        const updated = { ...latest };
+        let changed = false;
+        if ((res.avatarUrl ?? null) !== latest.avatarUrl) {
+          updated.avatarUrl = res.avatarUrl ?? null;
+          changed = true;
+        }
+        if (res.firstName && res.firstName !== latest.firstName) {
+          updated.firstName = res.firstName;
+          changed = true;
+        }
+        if (res.lastName && res.lastName !== latest.lastName) {
+          updated.lastName = res.lastName;
+          changed = true;
+        }
+        if (res.email && res.email !== latest.email) {
+          updated.email = res.email;
+          changed = true;
+        }
+        if (!changed) return;
+        setUser(updated);
       } catch {
         /* profile optional for navigation */
       }

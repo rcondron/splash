@@ -127,6 +127,26 @@ interface CreateFixtureResponse {
   fixture?: Fixture;
 }
 
+function voyageSummary(fix: Fixture): string {
+  const parts: string[] = [];
+  const dt = fix.deal_type;
+  if (dt === "time_charter") {
+    parts.push("TC");
+  } else if (dt === "voyage") {
+    parts.push("Voy");
+  } else if (dt === "bareboat") {
+    parts.push("BB");
+  } else if (dt === "coa") {
+    parts.push("COA");
+  }
+  if (fix.cargo_description) parts.push(fix.cargo_description);
+  if (fix.load_port || fix.discharge_port) {
+    const route = [fix.load_port, fix.discharge_port].filter(Boolean).join(" \u2192 ");
+    parts.push(route);
+  }
+  return parts.join(" \u2014 ") || "\u2014";
+}
+
 export default function FixturesPage() {
   const router = useRouter();
   const matrixUserId = useAuthStore((s) => s.matrixUserId);
@@ -139,8 +159,8 @@ export default function FixturesPage() {
 
   const [form, setForm] = useState({
     title: "",
-    deal_type: "voyage",
-    charter_type: "brokered",
+    deal_type: "time_charter",
+    charter_type: "time_charter",
     vessel_name: "",
     cargo_description: "",
     load_port: "",
@@ -221,8 +241,8 @@ export default function FixturesPage() {
         setShowCreate(false);
         setForm({
           title: "",
-          deal_type: "voyage",
-          charter_type: "brokered",
+          deal_type: "time_charter",
+          charter_type: "time_charter",
           vessel_name: "",
           cargo_description: "",
           load_port: "",
@@ -437,7 +457,7 @@ export default function FixturesPage() {
           <div className="grid grid-cols-8 gap-4 border-b border-slate-100 px-6 py-3 text-xs font-semibold uppercase tracking-wider text-slate-400">
             <div className="col-span-2">Fixture</div>
             <div>Vessel</div>
-            <div>Route</div>
+            <div>Voyage</div>
             <div>Stage</div>
             <div>Status</div>
             <div className="text-right">Updated</div>
@@ -517,15 +537,9 @@ export default function FixturesPage() {
                       onClick={() => router.push(`/fixtures/${fix.id}`)}
                       className="flex items-center text-slate-600 truncate text-left"
                     >
-                      {fix.load_port || fix.discharge_port ? (
-                        <span className="truncate">
-                          {fix.load_port || "\u2014"}
-                          {" \u2192 "}
-                          {fix.discharge_port || "\u2014"}
-                        </span>
-                      ) : (
-                        <span className="text-slate-400">{"\u2014"}</span>
-                      )}
+                      <span className="truncate text-xs">
+                        {voyageSummary(fix)}
+                      </span>
                     </button>
                     <div className="flex items-center">
                       <span
@@ -695,12 +709,10 @@ export default function FixturesPage() {
                             {fix.vessel_name}
                           </div>
                         )}
-                        {(fix.load_port || fix.discharge_port) && (
+                        {(fix.load_port || fix.discharge_port || fix.cargo_description) && (
                           <div className="mt-1 flex items-center gap-1 text-xs text-slate-500">
                             <MapPin className="h-3 w-3" />
-                            {fix.load_port || "\u2014"}
-                            {" \u2192 "}
-                            {fix.discharge_port || "\u2014"}
+                            <span className="truncate">{voyageSummary(fix)}</span>
                           </div>
                         )}
                       </button>
@@ -840,41 +852,33 @@ export default function FixturesPage() {
                 autoFocus
               />
             </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-1.5">
-                <label className="text-xs font-medium text-slate-500">
-                  Deal Type
-                </label>
-                <select
-                  value={form.deal_type}
-                  onChange={(e) =>
-                    setForm((f) => ({ ...f, deal_type: e.target.value }))
-                  }
-                  className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-300"
-                >
-                  <option value="voyage">Voyage Charter</option>
-                  <option value="time_charter">Time Charter</option>
-                  <option value="bareboat">Bareboat</option>
-                  <option value="coa">COA</option>
-                  <option value="other">Other</option>
-                </select>
-              </div>
-              <div className="space-y-1.5">
-                <label className="text-xs font-medium text-slate-500">
-                  Charter Type
-                </label>
-                <select
-                  value={form.charter_type}
-                  onChange={(e) =>
-                    setForm((f) => ({ ...f, charter_type: e.target.value }))
-                  }
-                  className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-300"
-                >
-                  <option value="brokered">Brokered</option>
-                  <option value="owner_to_charterer">Owner to Charterer</option>
-                  <option value="internal_reference">Internal Reference</option>
-                </select>
-              </div>
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-slate-500">
+                Charter Type
+              </label>
+              <select
+                value={form.charter_type}
+                onChange={(e) => {
+                  const ct = e.target.value;
+                  const dtMap: Record<string, string> = {
+                    time_charter: "time_charter",
+                    voyage_charter: "voyage",
+                    bareboat: "bareboat",
+                    period_charter: "time_charter",
+                  };
+                  setForm((f) => ({
+                    ...f,
+                    charter_type: ct,
+                    deal_type: dtMap[ct] || "voyage",
+                  }));
+                }}
+                className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-300"
+              >
+                <option value="time_charter">Time Charter</option>
+                <option value="voyage_charter">Voyage Charter</option>
+                <option value="bareboat">Bareboat</option>
+                <option value="period_charter">Period Charter</option>
+              </select>
             </div>
             <div className="space-y-1.5">
               <label className="text-xs font-medium text-slate-500">

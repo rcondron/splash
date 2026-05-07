@@ -336,43 +336,38 @@ export function FixtureTermsTab({ fixtureId }: { fixtureId: string }) {
                   )}
                 </div>
                 <div className="col-span-2 flex items-center justify-end gap-1">
-                  {!t.is_locked && (
+                  {t.is_locked ? (
+                    <button
+                      onClick={() => void handleLock(t.id, false)}
+                      className="rounded-md border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700 hover:bg-amber-100"
+                    >
+                      Unlock
+                    </button>
+                  ) : (
                     <>
+                      <button
+                        onClick={() => void handleLock(t.id, true)}
+                        className="rounded-md border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700 hover:bg-emerald-100"
+                      >
+                        Accept
+                      </button>
                       <button
                         onClick={() => {
                           setEditingId(t.id);
                           setEditValue(t.term_value ?? "");
                         }}
-                        className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
-                        title="Edit"
+                        className="rounded-md border border-blue-200 bg-blue-50 px-2 py-0.5 text-[11px] font-medium text-blue-700 hover:bg-blue-100"
                       >
-                        <Edit3 className="h-3.5 w-3.5" />
+                        Amend
                       </button>
                       <button
                         onClick={() => void handleDelete(t.id)}
-                        className="rounded p-1 text-slate-300 hover:bg-red-50 hover:text-red-500"
-                        title="Delete"
+                        className="rounded-md border border-red-200 bg-white px-2 py-0.5 text-[11px] font-medium text-red-500 hover:bg-red-50"
                       >
-                        <Trash2 className="h-3.5 w-3.5" />
+                        Delete
                       </button>
                     </>
                   )}
-                  <button
-                    onClick={() => void handleLock(t.id, !t.is_locked)}
-                    className={cn(
-                      "rounded p-1",
-                      t.is_locked
-                        ? "text-amber-500 hover:bg-amber-50"
-                        : "text-slate-400 hover:bg-slate-100 hover:text-slate-600",
-                    )}
-                    title={t.is_locked ? "Unlock" : "Lock"}
-                  >
-                    {t.is_locked ? (
-                      <Lock className="h-3.5 w-3.5" />
-                    ) : (
-                      <Unlock className="h-3.5 w-3.5" />
-                    )}
-                  </button>
                 </div>
               </div>
             ))}
